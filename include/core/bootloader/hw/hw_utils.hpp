@@ -23,10 +23,6 @@ reset();
 
 using UID = Array<uint8_t, 12>;
 
-//typedef union {
-//	uint8_t bytes[12];
-//} UID;
-
 const UID&
 getUID();
 
@@ -40,10 +36,10 @@ setNVR(
 
 
 enum WatchdogReason : uint32_t {
-    NO_APPLICATION   = 0xCAFEBABE, //
-    USER_REQUEST     = 0xB0BAFE77, //
+    NO_APPLICATION   = 0xCAFEBABE,
+    USER_REQUEST     = 0xB0BAFE77,
     BOOT_APPLICATION = 0xBAADF00D,
-    TRANSPORT_FAIL   = 0xD10CAA4E
+    TRANSPORT_FAIL   = 0xACABACAB
 };
 
 
