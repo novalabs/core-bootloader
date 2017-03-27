@@ -44,7 +44,7 @@ static const uint8_t led_selected[] = {
 
 static thread_reference_t trp = NULL;
 static const auto         RESUME_BOOTLOADER     = (msg_t)0xCACCAB0B;
-static const char         DEFAULT_MODULE_NAME[] = CORE_MODULE;
+static const char         DEFAULT_MODULE_NAME[] = CORE_MODULE_NAME;
 
 static core::stm32_flash::FlashSegment   _programFlash  = core::stm32_flash::FlashSegment(core::stm32_flash::PROGRAM_FLASH_FROM, core::stm32_flash::PROGRAM_FLASH_TO);
 static core::stm32_flash::ProgramStorage programStorage = core::stm32_flash::ProgramStorage(_programFlash);
@@ -371,7 +371,7 @@ public:
         if (!_selected && !_muted) {
             messages::Announce m;
             m.data.uid = hw::getUID();
-            m.data.moduleType.copyFrom(CORE_MODULE);
+            m.data.moduleType.copyFrom(CORE_MODULE_NAME);
             m.data.moduleName.copyFrom(configurationStorage.getModuleConfiguration()->name);
             m.data.userFlashSize    = configurationStorage.userDataSize();
             m.data.programFlashSize = programStorage.size() / 32;
@@ -1125,7 +1125,6 @@ private:
 
 #define FORCE_LOADER    false
 #define OVERRIDE_LOADER false
-
 
 void
 boot()
