@@ -31,6 +31,11 @@ struct UIDAndCRC {
     uint32_t crc;
 };
 
+struct UIDAndID {
+    hw::UID  uid;
+    uint8_t  id;
+};
+
 struct UIDAndName {
     hw::UID    uid;
     ModuleName name;
@@ -58,6 +63,7 @@ struct Announce {
     hw::UID    uid;
     uint16_t   userFlashSize;
     uint16_t   programFlashSize;
+    uint8_t    moduleId;
     ModuleType moduleType;
     ModuleName moduleName;
 };
@@ -87,7 +93,9 @@ using Reset = Message_<MessageType::RESET, payload::UID>;
 
 using ReadName = Message_<MessageType::READ_MODULE_NAME, payload::UID>;
 using WriteModuleName = Message_<MessageType::WRITE_MODULE_NAME, payload::UIDAndName>;
+using WriteModuleID   = Message_<MessageType::WRITE_MODULE_ID, payload::UIDAndID>;
 }
+
 
 class AcknowledgeUID:
     public AcknowledgeMessage_<payload::UID>

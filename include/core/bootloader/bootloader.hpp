@@ -36,6 +36,7 @@ enum class MessageType : uint8_t {
     MODULE_NAME       = 0x25,
     READ_MODULE_NAME  = 0x26,
     WRITE_MODULE_NAME = 0x27,
+    WRITE_MODULE_ID   = 0x28,
 
     IHEX_WRITE = 0x50,
     IHEX_READ  = 0x51,
@@ -117,7 +118,7 @@ struct Message_:
         Message(TYPE)
     {}
 
-    PAYLOAD data;
+    PAYLOAD data ;
 
     uint8_t padding[MESSAGE_LENGTH - sizeof(Message) - sizeof(data)];
 #if 0
@@ -143,9 +144,7 @@ struct Message_:
         }
     }
 #endif // if 0
-}
-
-CORE_PACKED_ALIGNED;
+} CORE_PACKED_ALIGNED;
 
 class AcknowledgeMessage:
     public Message

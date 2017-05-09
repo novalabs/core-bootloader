@@ -220,9 +220,9 @@ struct Array {
             to[i] = _data[i];
         }
     }
-}
+} __attribute__((packed));
 
-__attribute__((aligned(4), packed));
+//__attribute__((aligned(4), packed)); // Removed to allow Announce message
 
 template <typename T, std::size_t S>
 inline bool

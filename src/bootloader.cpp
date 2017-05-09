@@ -17,7 +17,8 @@
 #include "kk_ihex/kk_ihex_read.h"
 #include "kk_ihex/kk_ihex_write.h"
 #include <rtcan.h>
-#include <core/stm32_flash/FlashSegment.hpp>
+#include <core/stm32_flash/ConfigurationStorage.hpp>
+#include <core/stm32_flash/ProgramStorage.hpp>
 #include <core/stm32_crc/CRC.hpp>
 
 static const uint8_t led_waiting[] = {
@@ -59,6 +60,56 @@ static bool flashWriteSuccess = false; // Will be = true in eraseProgram (as we 
 static char   ihexBuffer[256];
 static size_t ihexBufferReadOffset = 0;
 static char*  ihexBufferWPtr       = nullptr;
+
+template<typename T, T POLY, T DEFAULT = POLY>
+struct LFSR {
+public:
+        using Type = T;
+        static constexpr Type POLYNOMIAL() { return POLY; };
+
+  LFSR() : _x(DEFAULT) {}
+  LFSR(Type x) : _x(x) {};
+
+  inline Type operator()() {
+      return update();
+  };
+
+  inline Type operator()(Type x) {
+      _x = x;
+
+    return update();
+  };
+
+  inline Type current() {
+      return _x;
+  }
+
+  inline Type next() {
+      return update();
+  }
+
+private:
+  Type _x;
+  inline Type update() {
+      if(DEFAULT != 0) {
+          if(_x == 0) {
+              _x = DEFAULT;
+          }
+      }
+
+      if(_x & 1) {
+              _x >>= 1;
+          } else {
+              _x >>= 1;
+              _x ^= POLY;
+          }
+
+          return _x;
+
+  }
+};
+
+LFSR<uint16_t, 0x82EEu> rng(hw::getUID()[0] << 8 | hw::getUID()[2]);
 
 ihex_bool_t
 ihex_data_read(
@@ -323,6 +374,9 @@ public:
           case MessageType::WRITE_MODULE_NAME:
               status = writeModuleNameMessage(inMessage);
               break;
+          case MessageType::WRITE_MODULE_ID:
+              status = writeModuleIDMessaqe(inMessage);
+              break;
           case MessageType::BOOTLOAD:
               status = AcknowledgeStatus::DISCARD;
               break;
@@ -351,6 +405,7 @@ public:
               case MessageType::ERASE_PROGRAM:
               case MessageType::WRITE_PROGRAM_CRC:
               case MessageType::WRITE_MODULE_NAME:
+              case MessageType::WRITE_MODULE_ID:
               case MessageType::RESET:
               default:
               {
@@ -371,10 +426,11 @@ public:
         if (!_selected && !_muted) {
             messages::Announce m;
             m.data.uid = hw::getUID();
-            m.data.moduleType.copyFrom(CORE_MODULE_NAME);
-            m.data.moduleName.copyFrom(configurationStorage.getModuleConfiguration()->name);
             m.data.userFlashSize    = configurationStorage.userDataSize();
             m.data.programFlashSize = programStorage.size() / 32;
+            m.data.moduleId = configurationStorage.getModuleConfiguration()->moduleID;
+            m.data.moduleType.copyFrom(CORE_MODULE_NAME);
+            m.data.moduleName.copyFrom(configurationStorage.getModuleConfiguration()->name);
             _transport.transmit(&m);
         }
     }
@@ -575,6 +631,33 @@ public:
             }
         }
     } // writeModuleNameMessage
+
+    AcknowledgeStatus
+    writeModuleIDMessaqe(
+        const Message* message
+    )
+    {
+        const messages::WriteModuleID* m = reinterpret_cast<const messages::WriteModuleID*>(message);
+
+        if (m->data.uid == hw::getUID()) {
+            if (_selected) {
+                if (m->sequenceId != (uint8_t)(_sequence + 2)) {
+                    return AcknowledgeStatus::WRONG_SEQUENCE;
+                } else {
+                    _sequence = m->sequenceId;
+                    return writeModuleID(m->data.id);
+                }
+            } else {
+                return AcknowledgeStatus::NOT_SELECTED;
+            }
+        } else {
+            if (_selected) {
+                return AcknowledgeStatus::WRONG_UID;
+            } else {
+                return AcknowledgeStatus::DISCARD;
+            }
+        }
+    } // writeProgramCRCMessage
 
     AcknowledgeStatus
     iHexWriteMessage(
@@ -780,6 +863,20 @@ public:
     }
 
     AcknowledgeStatus
+    writeModuleID(
+        uint8_t id
+    )
+    {
+        if (configurationStorage.writeModuleID(id)) {
+            return AcknowledgeStatus::OK;
+        } else {
+            return AcknowledgeStatus::ERROR;
+        }
+
+        return AcknowledgeStatus::OK;
+    }
+
+    AcknowledgeStatus
     ihexWrite(
         payload::IHex::Type type,
         const char          string[44]
@@ -969,7 +1066,7 @@ public:
         if (_state == State::INITIALIZED) {
             m->copyTo(_bufferTx);
 
-            rtcanTransmit(&RTCAND1, &_messageTx, MS2ST(100));
+            rtcanTransmit(&RTCAND1, &_messageTx, MS2ST(rng())); // The timeout is random
 
             return true;
         } else {
@@ -1028,8 +1125,14 @@ public:
 
         rtcan_msg_t* rtcan_msg_p;
 
+        uint8_t moduleID = configurationStorage.getModuleConfiguration()->moduleID;
+
+        while(moduleID == 0xFF) {
+            moduleID = rng(); // Get a random ID
+        }
+
         rtcan_msg_p           = &_messageTx;
-        rtcan_msg_p->id       = 0xFD00 | rtcanId();
+        rtcan_msg_p->id       = 0xFD00 | moduleID;
         rtcan_msg_p->callback = nullptr;
         rtcan_msg_p->params   = this;
         rtcan_msg_p->size     = MESSAGE_LENGTH;
@@ -1138,7 +1241,10 @@ boot()
 
     hw::setNVR(hw::WatchdogReason::NO_APPLICATION);
 
-    if (configurationStorage.getModuleConfiguration()->imageCRC != core::stm32_crc::CRC::getCRC()) {
+    volatile uint32_t imageCRC = configurationStorage.getModuleConfiguration()->imageCRC;
+    volatile uint32_t flashCRC =  core::stm32_crc::CRC::getCRC();
+
+    if (imageCRC != flashCRC) {
         // The image is broken, do not even try to run it!!!
         hw::watchdogEnable(hw::watchdogPeriod::PERIOD_1600_MS);
 
@@ -1162,6 +1268,18 @@ THD_FUNCTION(bootloaderThread, arg) {
     bootloader::CANTransport  transport;
     bootloader::SlaveProtocol proto(transport);
 
+    // Try to make it more random...
+    uint8_t cnt;
+    cnt = hw::getUID()[0] ^ hw::getUID()[5];
+    while(cnt--) {
+        rng();
+    }
+
+    cnt = hw::getUID()[2] ^ hw::getUID()[7];
+    while(cnt--) {
+        rng(cnt);
+    }
+
     proto.initialize();
 
     if (configurationStorage.getModuleConfiguration()->name[0] == 0xFF) {
@@ -1169,10 +1287,10 @@ THD_FUNCTION(bootloaderThread, arg) {
         configurationStorage.writeModuleName(DEFAULT_MODULE_NAME);
     }
 
-    hw::watchdogReload();
-
 #if OVERRIDE_LOADER
     boot();
+#else
+    hw::watchdogReload();
 #endif
 
     // Depending on how we got here, we must do something different:
