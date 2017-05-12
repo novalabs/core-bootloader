@@ -7,7 +7,6 @@
 #pragma once
 
 #include <core/bootloader/bootloader.hpp>
-#include <core/bootloader/hw/hw_utils.hpp> // UID
 
 namespace bootloader {
 namespace payload {
@@ -18,32 +17,32 @@ struct NAME {
 };
 
 struct UID {
-    hw::UID uid;
+    ModuleUID uid;
 };
 
 struct UIDAndMaster {
-    hw::UID uid;
-    uint8_t masterID;
+    ModuleUID uid;
+    uint8_t   masterID;
 };
 
 struct UIDAndCRC {
-    hw::UID  uid;
-    uint32_t crc;
+    ModuleUID uid;
+    uint32_t  crc;
 };
 
 struct UIDAndID {
-    hw::UID  uid;
-    uint8_t  id;
+    ModuleUID uid;
+    uint8_t   id;
 };
 
 struct UIDAndName {
-    hw::UID    uid;
+    ModuleUID  uid;
     ModuleName name;
 };
 
 struct UIDAndAddress {
-    hw::UID  uid;
-    uint32_t address;
+    ModuleUID uid;
+    uint32_t  address;
 };
 
 struct IHex {
@@ -60,9 +59,12 @@ struct IHex {
 };
 
 struct Announce {
-    hw::UID    uid;
+    ModuleUID uid;
+};
+
+struct Describe {
+    uint32_t   programFlashSize;
     uint16_t   userFlashSize;
-    uint16_t   programFlashSize;
     uint8_t    moduleId;
     ModuleType moduleType;
     ModuleName moduleName;
@@ -71,37 +73,72 @@ struct Announce {
 
 namespace messages {
 // SLAVE -> MASTER
-using Announce = Message_<MessageType::REQUEST, payload::Announce>;
+using Announce = Message_<ShortMessage, MessageType::REQUEST, payload::Announce>;
 
 // MASTER -> SLAVE
-using Bootload       = Message_<MessageType::BOOTLOAD, payload::EMPTY>;
-using BootloadByName = Message_<MessageType::BOOTLOAD_BY_NAME, payload::NAME>;
+using Bootload       = Message_<LongMessage, MessageType::BOOTLOAD, payload::EMPTY>;
+using BootloadByName = Message_<LongMessage, MessageType::BOOTLOAD_BY_NAME, payload::NAME>;
 
-using IdentifySlave = Message_<MessageType::IDENTIFY_SLAVE, payload::UID>;
-using SelectSlave   = Message_<MessageType::SELECT_SLAVE, payload::UIDAndMaster>;
-using DeselectSlave = Message_<MessageType::DESELECT_SLAVE, payload::UID>;
+using IdentifySlave = Message_<LongMessage, MessageType::IDENTIFY_SLAVE, payload::UID>;
+using SelectSlave   = Message_<LongMessage, MessageType::SELECT_SLAVE, payload::UIDAndMaster>;
+using DeselectSlave = Message_<LongMessage, MessageType::DESELECT_SLAVE, payload::UID>;
 
-using EraseConfiguration = Message_<MessageType::ERASE_CONFIGURATION, payload::UID>;
-using EraseProgram       = Message_<MessageType::ERASE_PROGRAM, payload::UID>;
-using WriteProgramCrc    = Message_<MessageType::WRITE_PROGRAM_CRC, payload::UIDAndCRC>;
+using EraseConfiguration = Message_<LongMessage, MessageType::ERASE_CONFIGURATION, payload::UID>;
+using EraseProgram       = Message_<LongMessage, MessageType::ERASE_PROGRAM, payload::UID>;
+using WriteProgramCrc    = Message_<LongMessage, MessageType::WRITE_PROGRAM_CRC, payload::UIDAndCRC>;
+using Describe = Message_<LongMessage, MessageType::DESCRIBE, payload::UID>;
 
-using IHexData = Message_<MessageType::IHEX_READ, payload::IHex>;
 
-using IHexRead = Message_<MessageType::IHEX_WRITE, payload::UIDAndAddress>;
+using IHexData = Message_<LongMessage, MessageType::IHEX_READ, payload::IHex>;
 
-using Reset = Message_<MessageType::RESET, payload::UID>;
+using IHexRead = Message_<LongMessage, MessageType::IHEX_WRITE, payload::UIDAndAddress>;
 
-using ReadName = Message_<MessageType::READ_MODULE_NAME, payload::UID>;
-using WriteModuleName = Message_<MessageType::WRITE_MODULE_NAME, payload::UIDAndName>;
-using WriteModuleID   = Message_<MessageType::WRITE_MODULE_ID, payload::UIDAndID>;
+using Reset = Message_<LongMessage, MessageType::RESET, payload::UID>;
+
+using ReadName = Message_<LongMessage, MessageType::READ_MODULE_NAME, payload::UID>;
+using WriteModuleName = Message_<LongMessage, MessageType::WRITE_MODULE_NAME, payload::UIDAndName>;
+using WriteModuleID   = Message_<LongMessage, MessageType::WRITE_MODULE_ID, payload::UIDAndID>;
 }
 
 
 class AcknowledgeUID:
-    public AcknowledgeMessage_<payload::UID>
+    public AcknowledgeMessage_<LongMessage, payload::UID>
 {
 public:
     AcknowledgeUID(
+        uint8_t           sequence,
+        const Message*    message,
+        AcknowledgeStatus status,
+        ModuleUID         uid
+    )
+    {
+        this->sequenceId = sequence + 1;
+        this->type       = static_cast<MessageType>(message->command);
+        this->data.uid   = uid;
+        this->status     = status;
+    }
+
+    AcknowledgeUID(
+        uint8_t           sequence,
+        const Message&    message,
+        AcknowledgeStatus status,
+        ModuleUID         uid
+    )
+    {
+        this->sequenceId = sequence + 1;
+        this->type       = static_cast<MessageType>(message.command);
+        this->data.uid   = uid;
+        this->status     = status;
+    }
+}
+
+CORE_PACKED_ALIGNED;
+
+class AcknowledgeDescribe:
+    public AcknowledgeMessage_<LongMessage, payload::Describe>
+{
+public:
+    AcknowledgeDescribe(
         uint8_t           sequence,
         const Message*    message,
         AcknowledgeStatus status
@@ -109,11 +146,10 @@ public:
     {
         this->sequenceId = sequence + 1;
         this->type       = static_cast<MessageType>(message->command);
-        this->data.uid   = hw::getUID();
         this->status     = status;
     }
 
-    AcknowledgeUID(
+    AcknowledgeDescribe(
         uint8_t           sequence,
         const Message&    message,
         AcknowledgeStatus status
@@ -121,7 +157,6 @@ public:
     {
         this->sequenceId = sequence + 1;
         this->type       = static_cast<MessageType>(message.command);
-        this->data.uid   = hw::getUID();
         this->status     = status;
     }
 }
@@ -129,7 +164,7 @@ public:
 CORE_PACKED_ALIGNED;
 
 class AcknowledgeString:
-    public AcknowledgeMessage_<char[44]>
+    public AcknowledgeMessage_<LongMessage, char[44]>
 {
 public:
     AcknowledgeString(

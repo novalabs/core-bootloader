@@ -220,7 +220,9 @@ struct Array {
             to[i] = _data[i];
         }
     }
-} __attribute__((packed));
+}
+
+__attribute__((packed));
 
 //__attribute__((aligned(4), packed)); // Removed to allow Announce message
 

@@ -24,7 +24,7 @@ CPU_UID()
 
 //uint8_t* UID = CPU_UID();
 
-static const UID _UID({CPU_UID()[0], CPU_UID()[1], CPU_UID()[2], CPU_UID()[3], CPU_UID()[4], CPU_UID()[5], CPU_UID()[6], CPU_UID()[7], CPU_UID()[8], CPU_UID()[9], CPU_UID()[10], CPU_UID()[11]});
+static const UID __attribute__((aligned(4))) _UID({CPU_UID()[0], CPU_UID()[1], CPU_UID()[2], CPU_UID()[3], CPU_UID()[4], CPU_UID()[5], CPU_UID()[6], CPU_UID()[7], CPU_UID()[8], CPU_UID()[9], CPU_UID()[10], CPU_UID()[11]});
 
 const UID&
 getUID()
@@ -78,8 +78,14 @@ watchdogEnable(
     watchdogPeriod period
 )
 {
-    //return;
+#ifndef OVERRIDE_WATCHDOG
     switch (period) {
+      case watchdogPeriod::PERIOD_0_MS:
+          IWDG->KR  = 0x5555;   // enable access
+          IWDG->PR  = 1;    // /8
+          IWDG->RLR = 0x1;   // maximum (circa 800 ms)
+          IWDG->KR  = 0xCCCC;   // start watchdog
+          break;
       case watchdogPeriod::PERIOD_800_MS:
           IWDG->KR  = 0x5555; // enable access
           IWDG->PR  = 1;  // /8
@@ -99,13 +105,15 @@ watchdogEnable(
           IWDG->KR  = 0xCCCC; // start watchdog
           break;
     } // switch
+#endif // ifndef OVERRIDE_WATCHDOG
 } // watchdogEnable
 
 void
 watchdogReload()
 {
-    //return;
+#ifndef OVERRIDE_WATCHDOG
     IWDG->KR = 0xAAAA; // reload
+#endif
 }
 
 int32_t

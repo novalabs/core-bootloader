@@ -9,6 +9,9 @@
 #include <stdint.h>
 #include <core/Array.hpp>
 
+// #define OVERRIDE_WATCHDOG 1
+
+
 namespace hw {
 typedef enum {
     HARDWARE, WATCHDOG, SOFTWARE, OTHER
@@ -44,6 +47,7 @@ enum WatchdogReason : uint32_t {
 
 
 enum watchdogPeriod {
+    PERIOD_0_MS,
     PERIOD_800_MS,
     PERIOD_1600_MS,
     PERIOD_6400_MS

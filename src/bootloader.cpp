@@ -61,55 +61,76 @@ static char   ihexBuffer[256];
 static size_t ihexBufferReadOffset = 0;
 static char*  ihexBufferWPtr       = nullptr;
 
-template<typename T, T POLY, T DEFAULT = POLY>
+static bootloader::ModuleUID _uid;
+static uint8_t _moduleID;
+
+template <typename T, T POLY, T DEFAULT = POLY>
 struct LFSR {
 public:
-        using Type = T;
-        static constexpr Type POLYNOMIAL() { return POLY; };
+    using Type = T;
+    static constexpr Type
+    POLYNOMIAL()
+    {
+        return POLY;
+    }
 
-  LFSR() : _x(DEFAULT) {}
-  LFSR(Type x) : _x(x) {};
+    LFSR() : _x(DEFAULT) {}
 
-  inline Type operator()() {
-      return update();
-  };
+    LFSR(
+        Type x
+    ) : _x(x) {}
 
-  inline Type operator()(Type x) {
-      _x = x;
+    inline Type
+    operator()()
+    {
+        return update();
+    }
 
-    return update();
-  };
+    inline Type
+    operator()(
+        Type x
+    )
+    {
+        _x = x;
 
-  inline Type current() {
-      return _x;
-  }
+        return update();
+    }
 
-  inline Type next() {
-      return update();
-  }
+    inline Type
+    current()
+    {
+        return _x;
+    }
+
+    inline Type
+    next()
+    {
+        return update();
+    }
 
 private:
-  Type _x;
-  inline Type update() {
-      if(DEFAULT != 0) {
-          if(_x == 0) {
-              _x = DEFAULT;
-          }
-      }
+    Type _x;
+    inline Type
+    update()
+    {
+        if (DEFAULT != 0) {
+            if (_x == 0) {
+                _x = DEFAULT;
+            }
+        }
 
-      if(_x & 1) {
-              _x >>= 1;
-          } else {
-              _x >>= 1;
-              _x ^= POLY;
-          }
+        if (_x & 1) {
+            _x >>= 1;
+        } else {
+            _x >>= 1;
+            _x  ^= POLY;
+        }
 
-          return _x;
-
-  }
+        return _x;
+    }
 };
 
-LFSR<uint16_t, 0x82EEu> rng(hw::getUID()[0] << 8 | hw::getUID()[2]);
+LFSR<uint16_t, 0x82EEu> rng(0);
 
 ihex_bool_t
 ihex_data_read(
@@ -217,12 +238,15 @@ public:
 
     virtual bool
     transmit(
-        const Message* m
+        const Message* m,
+        std::size_t    s,
+        uint8_t        topic
     ) = 0;
 
     virtual bool
     receive(
-        Message* m
+        Message*    m,
+        std::size_t s
     ) = 0;
 };
 
@@ -280,14 +304,14 @@ public:
     {
         AcknowledgeStatus status = AcknowledgeStatus::DISCARD;
 
-        Message rxMessage;
+        LongMessage rxMessage;
 
         const Message* inMessage;
 
         if (message == nullptr) {
             inMessage = &rxMessage;
 
-            if (!_transport.receive(&rxMessage)) {
+            if (!_transport.receive(&rxMessage, LongMessage::MESSAGE_LENGTH)) {
                 return;
             }
         } else {
@@ -309,20 +333,20 @@ public:
     } // processBootloadMessage
 
     void
-    processMessage(
+    processLongMessage(
         const void* message = nullptr
     )
     {
         AcknowledgeStatus status = AcknowledgeStatus::DISCARD;
 
-        Message rxMessage;
+        LongMessage rxMessage;
 
         const Message* inMessage;
 
         if (message == nullptr) {
             inMessage = &rxMessage;
 
-            if (!_transport.receive(&rxMessage)) {
+            if (!_transport.receive(&rxMessage, LongMessage::MESSAGE_LENGTH)) {
                 return;
             }
         } else {
@@ -332,7 +356,7 @@ public:
 #ifdef LOOPBACK
         _sequence = m->sequenceId;
         AcknowledgeMessage ack(_sequence, m, AcknowledgeStatus::OK);
-        _transport.transmit(ack.asMessage());
+        _transport.transmit(ack.asMessage(), AcknowledgeMessage::MESSAGE_LENGTH);
 #else
         switch (inMessage->command) {
           // implemented as a switch to keep it simple...
@@ -377,6 +401,9 @@ public:
           case MessageType::WRITE_MODULE_ID:
               status = writeModuleIDMessaqe(inMessage);
               break;
+          case MessageType::DESCRIBE:
+              status = describeMessaqe(inMessage);
+              break;
           case MessageType::BOOTLOAD:
               status = AcknowledgeStatus::DISCARD;
               break;
@@ -393,7 +420,24 @@ public:
               case MessageType::IHEX_READ:
               {
                   AcknowledgeString txMessage = AcknowledgeString(_sequence, inMessage, status, ihexBuffer, ihexBufferReadOffset);
-                  _transport.transmit(txMessage.asMessage());
+                  _transport.transmit(txMessage.asMessage(), AcknowledgeString::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
+              }
+              break;
+              case MessageType::DESCRIBE:
+              {
+                  AcknowledgeDescribe txMessage = AcknowledgeDescribe(_sequence, inMessage, status);
+
+                  if (status == AcknowledgeStatus::OK) {
+                      txMessage.data.moduleId = configurationStorage.getModuleConfiguration()->moduleID;
+                      txMessage.data.moduleType.copyFrom(CORE_MODULE_NAME);
+                      txMessage.data.moduleName.copyFrom(configurationStorage.getModuleConfiguration()->name);
+                      txMessage.data.userFlashSize    = configurationStorage.userDataSize();
+                      txMessage.data.programFlashSize = programStorage.size();
+                  } else {
+                      memset(&txMessage.data, 0, sizeof(txMessage.data));
+                  }
+
+                  _transport.transmit(txMessage.asMessage(), AcknowledgeDescribe::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
               }
               break;
               case MessageType::IHEX_WRITE:
@@ -409,8 +453,8 @@ public:
               case MessageType::RESET:
               default:
               {
-                  AcknowledgeUID txMessage = AcknowledgeUID(_sequence, inMessage, status);
-                  _transport.transmit(txMessage.asMessage());
+                  AcknowledgeUID txMessage = AcknowledgeUID(_sequence, inMessage, status, _uid);
+                  _transport.transmit(txMessage.asMessage(), AcknowledgeUID::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
               }
             } // switch
         } else if (status == AcknowledgeStatus::DISCARD) {} else {
@@ -425,13 +469,10 @@ public:
     {
         if (!_selected && !_muted) {
             messages::Announce m;
-            m.data.uid = hw::getUID();
-            m.data.userFlashSize    = configurationStorage.userDataSize();
-            m.data.programFlashSize = programStorage.size() / 32;
-            m.data.moduleId = configurationStorage.getModuleConfiguration()->moduleID;
-            m.data.moduleType.copyFrom(CORE_MODULE_NAME);
-            m.data.moduleName.copyFrom(configurationStorage.getModuleConfiguration()->name);
-            _transport.transmit(&m);
+            m.command    = MessageType::REQUEST;
+            m.sequenceId = 0x00;
+            m.data.uid   = _uid;
+            _transport.transmit(&m, messages::Announce::MESSAGE_LENGTH, BOOTLOADER_MASTER_TOPIC_ID);
         }
     }
 
@@ -443,7 +484,7 @@ public:
     {
         const messages::IdentifySlave* m = reinterpret_cast<const messages::IdentifySlave*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             return identify(true);
         } else {
             return identify(false);
@@ -457,7 +498,7 @@ public:
     {
         const messages::SelectSlave* m = reinterpret_cast<const messages::SelectSlave*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             _sequence = m->sequenceId; // The sequence number is re-aligned
             return select();
         } else {
@@ -475,7 +516,7 @@ public:
     {
         const messages::DeselectSlave* m = reinterpret_cast<const messages::DeselectSlave*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -504,7 +545,7 @@ public:
     {
         const messages::EraseConfiguration* m = reinterpret_cast<const messages::EraseConfiguration*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -531,7 +572,7 @@ public:
     {
         const messages::EraseConfiguration* m = reinterpret_cast<const messages::EraseConfiguration*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -558,7 +599,7 @@ public:
     {
         const messages::EraseProgram* m = reinterpret_cast<const messages::EraseProgram*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -585,7 +626,7 @@ public:
     {
         const messages::WriteProgramCrc* m = reinterpret_cast<const messages::WriteProgramCrc*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -612,7 +653,7 @@ public:
     {
         const messages::WriteModuleName* m = reinterpret_cast<const messages::WriteModuleName*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -639,13 +680,40 @@ public:
     {
         const messages::WriteModuleID* m = reinterpret_cast<const messages::WriteModuleID*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
                 } else {
                     _sequence = m->sequenceId;
                     return writeModuleID(m->data.id);
+                }
+            } else {
+                return AcknowledgeStatus::NOT_SELECTED;
+            }
+        } else {
+            if (_selected) {
+                return AcknowledgeStatus::WRONG_UID;
+            } else {
+                return AcknowledgeStatus::DISCARD;
+            }
+        }
+    } // writeProgramCRCMessage
+
+    AcknowledgeStatus
+    describeMessaqe(
+        const Message* message
+    )
+    {
+        const messages::Describe* m = reinterpret_cast<const messages::Describe*>(message);
+
+        if (m->data.uid == _uid) {
+            if (_selected) {
+                if (m->sequenceId != (uint8_t)(_sequence + 2)) {
+                    return AcknowledgeStatus::WRONG_SEQUENCE;
+                } else {
+                    _sequence = m->sequenceId;
+                    return AcknowledgeStatus::OK;
                 }
             } else {
                 return AcknowledgeStatus::NOT_SELECTED;
@@ -685,7 +753,7 @@ public:
     {
         const messages::IHexRead* m = reinterpret_cast<const messages::IHexRead*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -742,7 +810,7 @@ public:
     {
         const messages::Reset* m = reinterpret_cast<const messages::Reset*>(message);
 
-        if (m->data.uid == hw::getUID()) {
+        if (m->data.uid == _uid) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -1030,7 +1098,8 @@ class CANTransport:
 {
 public:
     CANTransport() :
-        _readBuffer(nullptr),
+        _readBufferShort(nullptr),
+        _readBufferLong(nullptr),
         _filterId(0x0000),
         _state(State::INITIALIZING)
 
@@ -1060,13 +1129,20 @@ public:
 
     bool
     transmit(
-        const Message* m
+        const Message* m,
+        std::size_t    s,
+        uint8_t        topic
     )
     {
         if (_state == State::INITIALIZED) {
-            m->copyTo(_bufferTx);
+            memcpy(_bufferTx, m, s);
 
-            rtcanTransmit(&RTCAND1, &_messageTx, MS2ST(rng())); // The timeout is random
+            rtcan_msg_t* rtcan_msg_p;
+            rtcan_msg_p       = &_messageTx;
+            rtcan_msg_p->id   = topic << 8 | _moduleID;
+            rtcan_msg_p->size = s;
+
+            rtcanTransmit(&RTCAND1, &_messageTx, MS2ST(100)); // The timeout is random
 
             return true;
         } else {
@@ -1076,23 +1152,36 @@ public:
 
     bool
     receive(
-        Message* m
+        Message*    m,
+        std::size_t s
     )
     {
         if (_state == State::INITIALIZED) {
-            if (_readBuffer == nullptr) {
-                return false;
+            if (s == SHORT_MESSAGE_LENGTH) {
+                if (_readBufferShort == nullptr) {
+                    return false;
+                }
+
+                memcpy(m, _readBufferShort, s);
+
+                _readBufferShort = nullptr; // swap() will set it!
+
+                return true;
+            } else {
+                if (_readBufferLong == nullptr) {
+                    return false;
+                }
+
+                memcpy(m, _readBufferLong, s);
+
+                _readBufferLong = nullptr; // swap() will set it!
+
+                return true;
             }
-
-            m->copyFrom(_readBuffer);
-
-            _readBuffer = nullptr; // swap() will set it!
-
-            return true;
         } else {
             return false;
         }
-    }
+    } // receive
 
     bool
     waitForMaster()
@@ -1103,15 +1192,15 @@ public:
 
         rtcan_msg_t* rtcan_msg_p;
 
-        rtcan_msg_p           = &_messageRx;
-        rtcan_msg_p->id       = 0xFC00; // Bootloader Master
+        rtcan_msg_p           = &_messageRxShort;
+        rtcan_msg_p->id       = (BOOTLOADER_MASTER_TOPIC_ID << 8); // Bootloader Master
         rtcan_msg_p->callback = reinterpret_cast<rtcan_msgcallback_t>(CANTransport::recv_cb);
         rtcan_msg_p->params   = this;
-        rtcan_msg_p->size     = 8;
-        rtcan_msg_p->data     = reinterpret_cast<uint8_t*>(&_bufferRx0);
+        rtcan_msg_p->size     = SHORT_MESSAGE_LENGTH;
+        rtcan_msg_p->data     = reinterpret_cast<uint8_t*>(&_bufferRxShort0);
         rtcan_msg_p->status   = RTCAN_MSG_READY;
 
-        rtcanReceiveMask(&RTCAND1, &_messageRx, 0xFF00);
+        rtcanReceiveMask(&RTCAND1, &_messageRxShort, 0xFF00);
 
         return true;
     } // waitForMaster
@@ -1125,29 +1214,23 @@ public:
 
         rtcan_msg_t* rtcan_msg_p;
 
-        uint8_t moduleID = configurationStorage.getModuleConfiguration()->moduleID;
-
-        while(moduleID == 0xFF) {
-            moduleID = rng(); // Get a random ID
-        }
-
         rtcan_msg_p           = &_messageTx;
-        rtcan_msg_p->id       = 0xFD00 | moduleID;
+        rtcan_msg_p->id       = (BOOTLOADER_TOPIC_ID << 8) | _moduleID;
         rtcan_msg_p->callback = nullptr;
         rtcan_msg_p->params   = this;
-        rtcan_msg_p->size     = MESSAGE_LENGTH;
+        rtcan_msg_p->size     = LONG_MESSAGE_LENGTH;
         rtcan_msg_p->data     = reinterpret_cast<uint8_t*>(&_bufferTx);
         rtcan_msg_p->status   = RTCAN_MSG_READY;
 
-        rtcan_msg_p           = &_messageRx;
-        rtcan_msg_p->id       = 0xFD00 | _filterId;
+        rtcan_msg_p           = &_messageRxLong;
+        rtcan_msg_p->id       = (BOOTLOADER_TOPIC_ID << 8) | _filterId;
         rtcan_msg_p->callback = reinterpret_cast<rtcan_msgcallback_t>(CANTransport::recv_cb);
         rtcan_msg_p->params   = this;
-        rtcan_msg_p->size     = MESSAGE_LENGTH;
-        rtcan_msg_p->data     = reinterpret_cast<uint8_t*>(&_bufferRx0);
+        rtcan_msg_p->size     = LONG_MESSAGE_LENGTH;
+        rtcan_msg_p->data     = reinterpret_cast<uint8_t*>(&_bufferRxLong0);
         rtcan_msg_p->status   = RTCAN_MSG_READY;
 
-        rtcanReceive(&RTCAND1, &_messageRx);
+        rtcanReceive(&RTCAND1, &_messageRxLong);
 
         return true;
     } // setFilter
@@ -1161,40 +1244,47 @@ private:
         CANTransport* _this = reinterpret_cast<CANTransport*>(rtcan_msg.params);
 
         if (_this->_state == State::INITIALIZING) {
-            if (rtcan_msg.status == RTCAN_MSG_BUSY) {
-                _this->swap();
-                _this->_filterId = rtcan_msg.id & 0x00FF;
-                _this->_state    = State::INITIALIZED;
-                osalThreadResumeI(&trp, RESUME_BOOTLOADER); // resume the bootloader thread with message
-            }
+            if ((rtcan_msg.status == RTCAN_MSG_BUSY) && (rtcan_msg.size == SHORT_MESSAGE_LENGTH)) {
+                _this->swapShort();
+                // We have received a message...
+                ShortMessage* m = reinterpret_cast<ShortMessage*>(_this->_readBufferShort);
 
-            rtcan_msg.status = RTCAN_MSG_READY; // welcome a new message
+                // If a master advertises itself...
+                if (m->command == MessageType::MASTER_ADVERTISE) {
+                    _this->_filterId = rtcan_msg.id & 0x00FF;
+                    _this->_state    = State::INITIALIZED;
+                    osalThreadResumeI(&trp, RESUME_BOOTLOADER); // resume the bootloader thread with message
+                }
+            }
         } else if (_this->_state == State::INITIALIZED) {
-            if (rtcan_msg.id != (0xFD00 | _this->_filterId)) {
-                rtcan_msg.status = RTCAN_MSG_READY; // welcome a new message
-                // It was not an interesting message...
-                return;
-            }
+            if ((rtcan_msg.status == RTCAN_MSG_BUSY) && (rtcan_msg.size == LONG_MESSAGE_LENGTH)) {
+                _this->swapLong();
 
-            if (rtcan_msg.status == RTCAN_MSG_BUSY) {
-                _this->swap();
-                osalThreadResumeI(&trp, RESUME_BOOTLOADER); // resume the bootloader thread with message
+                // We have received a message...
+                if (rtcan_msg.id == ((BOOTLOADER_TOPIC_ID << 8) | _this->_filterId)) {
+                    // That was interesting
+                    osalThreadResumeI(&trp, RESUME_BOOTLOADER); // resume the bootloader thread with message
+                }
             }
-
-            rtcan_msg.status = RTCAN_MSG_READY; // welcome a new message
         }
+
+        rtcan_msg.status = RTCAN_MSG_READY; // welcome a new message
     } // recv_cb
 
 private:
-    uint8_t _bufferTx[MESSAGE_LENGTH];
+    uint8_t _bufferTx[MAXIMUM_MESSAGE_LENGTH];
 
-    uint8_t _bufferRx0[MESSAGE_LENGTH];
-    uint8_t _bufferRx1[MESSAGE_LENGTH];
+    uint8_t _bufferRxShort0[SHORT_MESSAGE_LENGTH];
+    uint8_t _bufferRxShort1[SHORT_MESSAGE_LENGTH];
+    uint8_t _bufferRxLong0[LONG_MESSAGE_LENGTH];
+    uint8_t _bufferRxLong1[LONG_MESSAGE_LENGTH];
 
     rtcan_msg_t _messageTx;
-    rtcan_msg_t _messageRx;
+    rtcan_msg_t _messageRxShort;
+    rtcan_msg_t _messageRxLong;
 
-    uint8_t* _readBuffer;
+    uint8_t* _readBufferShort;
+    uint8_t* _readBufferLong;
 
     rtcan_id_t _filterId;
 
@@ -1207,27 +1297,42 @@ private:
 
 private:
     inline void
-    swap()
+    swapShort()
     {
-//			osalSysLockFromISR(); // called from and ISR, it is already locked!
-        uint8_t* buffer0 = reinterpret_cast<uint8_t*>(&_bufferRx0);
-        uint8_t* buffer1 = reinterpret_cast<uint8_t*>(&_bufferRx1);
+        uint8_t* buffer0 = reinterpret_cast<uint8_t*>(&_bufferRxShort0);
+        uint8_t* buffer1 = reinterpret_cast<uint8_t*>(&_bufferRxShort1);
 
-        if (_messageRx.data == buffer0) {
-            _messageRx.data = buffer1;
-            _readBuffer     = buffer0;
+        if (_messageRxShort.data == buffer0) {
+            _messageRxShort.data = buffer1;
+            _readBufferShort     = buffer0;
         } else {
-            _messageRx.data = buffer0;
-            _readBuffer     = buffer1;
+            _messageRxShort.data = buffer0;
+            _readBufferShort     = buffer1;
         }
+    }
 
-//			osalSysUnlockFromISR();
+    inline void
+    swapLong()
+    {
+        uint8_t* buffer0 = reinterpret_cast<uint8_t*>(&_bufferRxLong0);
+        uint8_t* buffer1 = reinterpret_cast<uint8_t*>(&_bufferRxLong1);
+
+        if (_messageRxLong.data == buffer0) {
+            _messageRxLong.data = buffer1;
+            _readBufferLong     = buffer0;
+        } else {
+            _messageRxLong.data = buffer0;
+            _readBufferLong     = buffer1;
+        }
     }
 };
 }
 
+/// DEBUGGING DEFINES                  ///
+/// For production: both must be false ///
 #define FORCE_LOADER    false
 #define OVERRIDE_LOADER false
+/// ---------------------------------- ///
 
 void
 boot()
@@ -1242,7 +1347,7 @@ boot()
     hw::setNVR(hw::WatchdogReason::NO_APPLICATION);
 
     volatile uint32_t imageCRC = configurationStorage.getModuleConfiguration()->imageCRC;
-    volatile uint32_t flashCRC =  core::stm32_crc::CRC::getCRC();
+    volatile uint32_t flashCRC = core::stm32_crc::CRC::getCRC();
 
     if (imageCRC != flashCRC) {
         // The image is broken, do not even try to run it!!!
@@ -1268,24 +1373,29 @@ THD_FUNCTION(bootloaderThread, arg) {
     bootloader::CANTransport  transport;
     bootloader::SlaveProtocol proto(transport);
 
-    // Try to make it more random...
-    uint8_t cnt;
-    cnt = hw::getUID()[0] ^ hw::getUID()[5];
-    while(cnt--) {
-        rng();
-    }
-
-    cnt = hw::getUID()[2] ^ hw::getUID()[7];
-    while(cnt--) {
-        rng(cnt);
-    }
-
     proto.initialize();
 
     if (configurationStorage.getModuleConfiguration()->name[0] == 0xFF) {
         // Name is empty, let's fill it with the default
         configurationStorage.writeModuleName(DEFAULT_MODULE_NAME);
     }
+
+    // Setup some globals...
+
+    _moduleID = configurationStorage.getModuleConfiguration()->moduleID;
+
+    core::stm32_crc::CRC::init();
+    core::stm32_crc::CRC::setPolynomialSize(core::stm32_crc::CRC::PolynomialSize::POLY_32);
+
+    _uid = core::stm32_crc::CRC::CRCBlock((uint32_t*)hw::getUID().data(), hw::getUID().size() / sizeof(uint32_t));
+
+    rng(_uid);
+
+    while (_moduleID == 0xFF) {
+        _moduleID = rng();
+    }
+
+    // Done
 
 #if OVERRIDE_LOADER
     boot();
@@ -1383,7 +1493,7 @@ THD_FUNCTION(bootloaderThread, arg) {
 
                 cnt++;
             } else {
-                proto.processMessage();
+                proto.processLongMessage();
             }
 
             osalSysUnlock();

@@ -16,10 +16,21 @@ THD_FUNCTION(bootloaderThread, arg);
 #include <core/Array.hpp>
 
 namespace bootloader {
+using ProductUID = uint16_t;
+using ModuleUID  = uint32_t;
 using ModuleType = Array<char, 12>;
 using ModuleName = Array<char, 14>;
 
-static const uint32_t MESSAGE_LENGTH = 48;
+static const uint32_t SHORT_MESSAGE_LENGTH = 8;
+static const uint32_t LONG_MESSAGE_LENGTH  = 48;
+
+static const uint32_t MAXIMUM_MESSAGE_LENGTH = 48;
+
+#define BOOTLOADER_MASTER_TOPIC_NAME "BOOTLOADERMSTR"
+#define BOOTLOADER_MASTER_TOPIC_ID ((uint8_t)0xFC)
+
+#define BOOTLOADER_TOPIC_NAME "BOOTLOADER"
+#define BOOTLOADER_TOPIC_ID ((uint8_t)0xFD)
 
 enum class MessageType : uint8_t {
     NONE           = 0x00,
@@ -37,6 +48,7 @@ enum class MessageType : uint8_t {
     READ_MODULE_NAME  = 0x26,
     WRITE_MODULE_NAME = 0x27,
     WRITE_MODULE_ID   = 0x28,
+    DESCRIBE          = 0x29, //
 
     IHEX_WRITE = 0x50,
     IHEX_READ  = 0x51,
@@ -44,6 +56,10 @@ enum class MessageType : uint8_t {
     RESET            = 0x60,
     BOOTLOAD         = 0x70,
     BOOTLOAD_BY_NAME = 0x71,
+
+    MASTER_ADVERTISE = 0xA0,
+    MASTER_IGNORE    = 0xA1,
+    MASTER_FORCE     = 0xA2,
 
     ACK = 0xFF
 };
@@ -63,17 +79,39 @@ enum class AcknowledgeStatus : uint8_t {
 };
 
 struct Message {
-    Message() : command(MessageType::NONE), sequenceId(0) {}
+    Message() : command(MessageType::NONE) {}
 
     Message(
         MessageType c
     ) :
-        command(c),
-        sequenceId(0)
+        command(c)
     {}
 
     MessageType command;
-    uint8_t     sequenceId;
+
+    const Message*
+    asMessage()
+    {
+        return this;
+    }
+}
+
+CORE_PACKED_ALIGNED;
+
+
+template <std::size_t _MESSAGE_LENGTH>
+struct MessageBase:
+    public Message {
+    static const std::size_t MESSAGE_LENGTH = _MESSAGE_LENGTH;
+
+    MessageBase() : Message(MessageType::NONE), sequenceId(0) {}
+
+    MessageBase(
+        MessageType c
+    ) : Message(c), sequenceId(0)
+    {}
+
+    uint8_t sequenceId;
 
     void
     copyTo(
@@ -83,7 +121,7 @@ struct Message {
         const uint8_t* f = reinterpret_cast<const uint8_t*>(this);
         uint8_t*       t = buffer;
 
-        for (std::size_t i = 0; i < MESSAGE_LENGTH; i++) {
+        for (std::size_t i = 0; i < _MESSAGE_LENGTH; i++) {
             *(t++) = *(f++);
         }
     }
@@ -96,61 +134,40 @@ struct Message {
         const uint8_t* f = buffer;
         uint8_t*       t = reinterpret_cast<uint8_t*>(this);
 
-        for (std::size_t i = 0; i < MESSAGE_LENGTH; i++) {
+        for (std::size_t i = 0; i < _MESSAGE_LENGTH; i++) {
             *(t++) = *(f++);
         }
-    }
-
-    const Message*
-    asMessage()
-    {
-        return this;
     }
 }
 
 CORE_PACKED_ALIGNED;
 
-template <MessageType TYPE, typename PAYLOAD>
+template <typename _CONTAINER, MessageType _TYPE, typename _PAYLOAD>
 struct Message_:
-    Message {
-    using PayloadType = PAYLOAD;
+    public _CONTAINER {
+    //static const std::size_t MESSAGE_LENGTH = _CONTAINER::MESSAGE_LENGTH;
+    using ContainerType = _CONTAINER;
+    using PayloadType   = _PAYLOAD;
+
     Message_() :
-        Message(TYPE)
+        ContainerType(_TYPE)
     {}
 
-    PAYLOAD data ;
+    PayloadType data;
 
-    uint8_t padding[MESSAGE_LENGTH - sizeof(Message) - sizeof(data)];
-#if 0
-    static const PAYLOAD&
-    getDataFromBuffer(
-        const uint8_t* buffer
-    )
-    {
-        return reinterpret_cast<const Message_<TYPE, PAYLOAD>*>(buffer)->data;
-    }
+    uint8_t padding[ContainerType::MESSAGE_LENGTH - sizeof(ContainerType) - sizeof(data)];
+}
 
-    static void
-    setDataToBuffer(
-        const PAYLOAD& payload,
-        uint8_t*       buffer
-    )
-    {
-        const uint8_t* f = reinterpret_cast<const uint8_t*>(&payload);
-        uint8_t*       t = buffer + sizeof(Message);
+CORE_PACKED_ALIGNED;
 
-        for (std::size_t i = 0; i < sizeof(PAYLOAD); i++) {
-            *(t++) = *(f++);
-        }
-    }
-#endif // if 0
-} CORE_PACKED_ALIGNED;
-
+template <typename CONTAINER>
 class AcknowledgeMessage:
-    public Message
+    public CONTAINER
 {
 public:
-    AcknowledgeMessage() : Message(MessageType::ACK), status(AcknowledgeStatus::NONE), type(MessageType::NONE) {}
+    using ContainerType = CONTAINER;
+
+    AcknowledgeMessage() : CONTAINER(MessageType::ACK), status(AcknowledgeStatus::NONE), type(MessageType::NONE) {}
 
     AcknowledgeStatus status;
     MessageType       type;
@@ -158,15 +175,21 @@ public:
 
 CORE_PACKED_ALIGNED;
 
-template <typename PAYLOAD>
+template <typename CONTAINER, typename PAYLOAD>
 class AcknowledgeMessage_:
-    public AcknowledgeMessage
+    public AcknowledgeMessage<CONTAINER>
 {
 public:
+    using ContainerType = CONTAINER;
+    using PayloadType   = PAYLOAD;
+
     PAYLOAD data;
 
-    uint8_t padding[MESSAGE_LENGTH - sizeof(Message) - sizeof(data)];
+    uint8_t padding[ContainerType::MESSAGE_LENGTH - sizeof(ContainerType) - sizeof(data)];
 }
 
 CORE_PACKED_ALIGNED;
+
+using ShortMessage = MessageBase<8>;
+using LongMessage  = MessageBase<48>;
 }
