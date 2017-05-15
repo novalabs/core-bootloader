@@ -9,6 +9,10 @@
 #include <nil.h>
 #include <hal.h>
 
+#ifdef OVERRIDE_WATCHDOG
+#warning "OVERRIDE_WATCHDOG is DEFINED - DO NOT USE THIS IN PRODUCTION"
+#endif
+
 #if defined(STM32F091xC)
 uint32_t VectorTable[48] __attribute__((section(".vector_table")));
 #endif
@@ -74,25 +78,31 @@ setNVR(
 }
 
 void
-watchdogEnable(
-    watchdogPeriod period
+Watchdog::freezeOnDebug()
+{
+    DBGMCU->APB1FZ |= (DBGMCU_APB1_FZ_DBG_WWDG_STOP);
+}
+
+void
+Watchdog::enable(
+    Period period
 )
 {
 #ifndef OVERRIDE_WATCHDOG
     switch (period) {
-      case watchdogPeriod::PERIOD_0_MS:
+      case Period::_0_ms:
           IWDG->KR  = 0x5555;   // enable access
           IWDG->PR  = 1;    // /8
           IWDG->RLR = 0x1;   // maximum (circa 800 ms)
           IWDG->KR  = 0xCCCC;   // start watchdog
           break;
-      case watchdogPeriod::PERIOD_800_MS:
+      case Period::_800_ms:
           IWDG->KR  = 0x5555; // enable access
           IWDG->PR  = 1;  // /8
           IWDG->RLR = 0xFFF; // maximum (circa 800 ms)
           IWDG->KR  = 0xCCCC; // start watchdog
           break;
-      case watchdogPeriod::PERIOD_1600_MS:
+      case Period::_1600_ms:
           IWDG->KR  = 0x5555; // enable access
           IWDG->PR  = 2;  // /16
           IWDG->RLR = 0xFFF; // maximum (circa 1600 ms)
@@ -109,7 +119,7 @@ watchdogEnable(
 } // watchdogEnable
 
 void
-watchdogReload()
+Watchdog::reload()
 {
 #ifndef OVERRIDE_WATCHDOG
     IWDG->KR = 0xAAAA; // reload

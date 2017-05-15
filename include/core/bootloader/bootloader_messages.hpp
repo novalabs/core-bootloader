@@ -97,7 +97,7 @@ using Reset = Message_<LongMessage, MessageType::RESET, payload::UID>;
 
 using ReadName = Message_<LongMessage, MessageType::READ_MODULE_NAME, payload::UID>;
 using WriteModuleName = Message_<LongMessage, MessageType::WRITE_MODULE_NAME, payload::UIDAndName>;
-using WriteModuleID   = Message_<LongMessage, MessageType::WRITE_MODULE_ID, payload::UIDAndID>;
+using WriteModuleID   = Message_<LongMessage, MessageType::WRITE_MODULE_CAN_ID, payload::UIDAndID>;
 }
 
 
@@ -141,23 +141,53 @@ public:
     AcknowledgeDescribe(
         uint8_t           sequence,
         const Message*    message,
-        AcknowledgeStatus status
+        AcknowledgeStatus status,
+        uint8_t           moduleId,
+        const char*       module_type,
+        const char*       module_name,
+        uint32_t          user_flash_size,
+        uint32_t          program_flash_size
     )
     {
         this->sequenceId = sequence + 1;
         this->type       = static_cast<MessageType>(message->command);
         this->status     = status;
+
+        if (status == AcknowledgeStatus::OK) {
+            this->data.moduleId = moduleId;
+            this->data.moduleType.copyFrom(module_type);
+            this->data.moduleName.copyFrom(module_name);
+            this->data.userFlashSize    = user_flash_size;
+            this->data.programFlashSize = program_flash_size;
+        } else {
+            memset(&this->data, 0, sizeof(this->data));
+        }
     }
 
     AcknowledgeDescribe(
         uint8_t           sequence,
         const Message&    message,
-        AcknowledgeStatus status
+        AcknowledgeStatus status,
+        uint8_t           moduleId,
+        const char*       module_type,
+        const char*       module_name,
+        uint32_t          user_flash_size,
+        uint32_t          program_flash_size
     )
     {
         this->sequenceId = sequence + 1;
         this->type       = static_cast<MessageType>(message.command);
         this->status     = status;
+
+        if (status == AcknowledgeStatus::OK) {
+            this->data.moduleId = moduleId;
+            this->data.moduleType.copyFrom(module_type);
+            this->data.moduleName.copyFrom(module_name);
+            this->data.userFlashSize    = user_flash_size;
+            this->data.programFlashSize = program_flash_size;
+        } else {
+            memset(&this->data, 0, sizeof(this->data));
+        }
     }
 }
 

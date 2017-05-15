@@ -6,6 +6,16 @@
 
 #pragma once
 
+//--- DEBUGGING DEFINES -------------------------------------------------------
+/// For production: both must be false ///
+#ifndef FORCE_LOADER
+#define FORCE_LOADER    false
+#endif
+#ifndef OVERRIDE_LOADER
+#define OVERRIDE_LOADER false
+#endif
+//-----------------------------------------------------------------------------
+
 #define CORE_PACKED          __attribute__((packed))
 #define CORE_PACKED_ALIGNED  __attribute__((aligned(4), packed))
 
@@ -16,6 +26,8 @@ THD_FUNCTION(bootloaderThread, arg);
 #include <core/Array.hpp>
 
 namespace bootloader {
+// WARNING: KEEP THE FOLLOWING SYNCHED WITH THE MW
+
 using ProductUID = uint16_t;
 using ModuleUID  = uint32_t;
 using ModuleType = Array<char, 12>;
@@ -34,21 +46,21 @@ static const uint32_t MAXIMUM_MESSAGE_LENGTH = 48;
 
 enum class MessageType : uint8_t {
     NONE           = 0x00,
-    REQUEST        = 0x01, //
-    IDENTIFY_SLAVE = 0x02, //
-    SELECT_SLAVE   = 0x10, //
-    DESELECT_SLAVE = 0x11, //
+    REQUEST        = 0x01,
+    IDENTIFY_SLAVE = 0x02,
+    SELECT_SLAVE   = 0x10,
+    DESELECT_SLAVE = 0x11,
 
     ERASE_CONFIGURATION      = 0x04,
     ERASE_PROGRAM            = 0x05,
     WRITE_PROGRAM_CRC        = 0x06,
     ERASE_USER_CONFIGURATION = 0x07,
 
-    MODULE_NAME       = 0x25,
-    READ_MODULE_NAME  = 0x26,
-    WRITE_MODULE_NAME = 0x27,
-    WRITE_MODULE_ID   = 0x28,
-    DESCRIBE          = 0x29, //
+    MODULE_NAME         = 0x25,
+    READ_MODULE_NAME    = 0x26,
+    WRITE_MODULE_NAME   = 0x27,
+    WRITE_MODULE_CAN_ID = 0x28,
+    DESCRIBE            = 0x29,
 
     IHEX_WRITE = 0x50,
     IHEX_READ  = 0x51,

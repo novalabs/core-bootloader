@@ -67,13 +67,13 @@ THD_FUNCTION(blinkerThread, arg) {
                     palSetPad(LED_GPIO, LED_PIN);
                 }
 
-                chThdSleepMilliseconds(BLINKER_GRANULARITY * (x & 0x7F));
+                osalThreadSleepMilliseconds(BLINKER_GRANULARITY * (x & 0x7F));
             } else {
                 if (_active) {
                     palClearPad(LED_GPIO, LED_PIN);
                 }
 
-                chThdSleepMilliseconds(BLINKER_GRANULARITY * (x & 0x7F));
+                osalThreadSleepMilliseconds(BLINKER_GRANULARITY * (x & 0x7F));
             }
 
             id++;

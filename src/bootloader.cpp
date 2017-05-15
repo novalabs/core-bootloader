@@ -8,6 +8,7 @@
 #include <hal.h>
 
 #include <cstring>
+#include <core/LFSR.hpp>
 
 #include <core/bootloader/bootloader.hpp>
 #include <core/bootloader/bootloader_messages.hpp>
@@ -21,6 +22,15 @@
 #include <core/stm32_flash/ProgramStorage.hpp>
 #include <core/stm32_crc/CRC.hpp>
 
+#if FORCE_LOADER
+#warning "FORCE_LOADER is DEFINED - DO NOT USE THIS IN PRODUCTION"
+#endif
+
+#if OVERRIDE_LOADER
+#warning "OVERRIDE_LOADER is DEFINED - DO NOT USE THIS IN PRODUCTION"
+#endif
+
+//--- LED BLINKING SEQUENCES --------------------------------------------------
 static const uint8_t led_waiting[] = {
     LED_ON(75), LED_OFF(300), LED_LOOP()
 };
@@ -42,14 +52,22 @@ static const uint8_t led_identify[] = {
 static const uint8_t led_selected[] = {
     LED_ON(100), LED_OFF(100), LED_LOOP()
 };
+//-----------------------------------------------------------------------------
 
-static thread_reference_t trp = NULL;
-static const auto         RESUME_BOOTLOADER     = (msg_t)0xCACCAB0B;
-static const char         DEFAULT_MODULE_NAME[] = CORE_MODULE_NAME;
+#ifdef MODULE_NAME
+static const char DEFAULT_MODULE_NAME[] = MODULE_NAME;
+#else
+static const char DEFAULT_MODULE_NAME[] = CORE_MODULE_NAME;
+#endif
 
-static core::stm32_flash::FlashSegment   _programFlash  = core::stm32_flash::FlashSegment(core::stm32_flash::PROGRAM_FLASH_FROM, core::stm32_flash::PROGRAM_FLASH_TO);
-static core::stm32_flash::ProgramStorage programStorage = core::stm32_flash::ProgramStorage(_programFlash);
+// Default configuration
+RTCANConfig rtcan_config = {
+    1000000, 100, 60
+};
 
+// Flash storage
+static core::stm32_flash::FlashSegment         _programFlash  = core::stm32_flash::FlashSegment(core::stm32_flash::PROGRAM_FLASH_FROM, core::stm32_flash::PROGRAM_FLASH_TO);
+static core::stm32_flash::ProgramStorage       programStorage = core::stm32_flash::ProgramStorage(_programFlash);
 static core::stm32_flash::FlashSegment         _configurationBank1(core::stm32_flash::CONFIGURATION1_FLASH_FROM, core::stm32_flash::CONFIGURATION1_FLASH_TO);
 static core::stm32_flash::FlashSegment         _configurationBank2(core::stm32_flash::CONFIGURATION2_FLASH_FROM, core::stm32_flash::CONFIGURATION2_FLASH_TO);
 static core::stm32_flash::Storage              _userStorage(_configurationBank1, _configurationBank2);
@@ -57,80 +75,20 @@ static core::stm32_flash::ConfigurationStorage configurationStorage(_userStorage
 
 static bool flashWriteSuccess = false; // Will be = true in eraseProgram (as we do not know if the program flash has already been cleared...
 
+static thread_reference_t trp = nullptr; // Bootloader thread
+static const auto         RESUME_BOOTLOADER = (msg_t)0xCACCAB0B;     // Message used to resume the bootloader thread
+
+static bootloader::ModuleUID _moduleUID; // Module UID
+static uint8_t _canID; // CAN ID
+
+LFSR<uint16_t, 0x82EEu> rng(0); // PRNG
+
+uint8_t data[bootloader::MAXIMUM_MESSAGE_LENGTH];
+
+// IHEX -----------------------------------------------------------------------
 static char   ihexBuffer[256];
 static size_t ihexBufferReadOffset = 0;
 static char*  ihexBufferWPtr       = nullptr;
-
-static bootloader::ModuleUID _uid;
-static uint8_t _moduleID;
-
-template <typename T, T POLY, T DEFAULT = POLY>
-struct LFSR {
-public:
-    using Type = T;
-    static constexpr Type
-    POLYNOMIAL()
-    {
-        return POLY;
-    }
-
-    LFSR() : _x(DEFAULT) {}
-
-    LFSR(
-        Type x
-    ) : _x(x) {}
-
-    inline Type
-    operator()()
-    {
-        return update();
-    }
-
-    inline Type
-    operator()(
-        Type x
-    )
-    {
-        _x = x;
-
-        return update();
-    }
-
-    inline Type
-    current()
-    {
-        return _x;
-    }
-
-    inline Type
-    next()
-    {
-        return update();
-    }
-
-private:
-    Type _x;
-    inline Type
-    update()
-    {
-        if (DEFAULT != 0) {
-            if (_x == 0) {
-                _x = DEFAULT;
-            }
-        }
-
-        if (_x & 1) {
-            _x >>= 1;
-        } else {
-            _x >>= 1;
-            _x  ^= POLY;
-        }
-
-        return _x;
-    }
-};
-
-LFSR<uint16_t, 0x82EEu> rng(0);
 
 ihex_bool_t
 ihex_data_read(
@@ -217,11 +175,7 @@ ihex_flush_buffer(
     }
 }
 
-RTCANConfig rtcan_config = {
-    1000000, 100, 60
-};
-
-uint8_t data[48];
+//-----------------------------------------------------------------------------
 
 namespace bootloader {
 class SlaveProtocol;
@@ -398,8 +352,8 @@ public:
           case MessageType::WRITE_MODULE_NAME:
               status = writeModuleNameMessage(inMessage);
               break;
-          case MessageType::WRITE_MODULE_ID:
-              status = writeModuleIDMessaqe(inMessage);
+          case MessageType::WRITE_MODULE_CAN_ID:
+              status = writeCanIDMessaqe(inMessage);
               break;
           case MessageType::DESCRIBE:
               status = describeMessaqe(inMessage);
@@ -425,18 +379,12 @@ public:
               break;
               case MessageType::DESCRIBE:
               {
-                  AcknowledgeDescribe txMessage = AcknowledgeDescribe(_sequence, inMessage, status);
-
-                  if (status == AcknowledgeStatus::OK) {
-                      txMessage.data.moduleId = configurationStorage.getModuleConfiguration()->moduleID;
-                      txMessage.data.moduleType.copyFrom(CORE_MODULE_NAME);
-                      txMessage.data.moduleName.copyFrom(configurationStorage.getModuleConfiguration()->name);
-                      txMessage.data.userFlashSize    = configurationStorage.userDataSize();
-                      txMessage.data.programFlashSize = programStorage.size();
-                  } else {
-                      memset(&txMessage.data, 0, sizeof(txMessage.data));
-                  }
-
+                  AcknowledgeDescribe txMessage = AcknowledgeDescribe(_sequence, inMessage, status,
+                                                                      configurationStorage.getModuleConfiguration()->canID,
+                                                                      DEFAULT_MODULE_NAME,
+                                                                      configurationStorage.getModuleConfiguration()->name,
+                                                                      configurationStorage.userDataSize(), programStorage.size()
+                                                  );
                   _transport.transmit(txMessage.asMessage(), AcknowledgeDescribe::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
               }
               break;
@@ -449,11 +397,11 @@ public:
               case MessageType::ERASE_PROGRAM:
               case MessageType::WRITE_PROGRAM_CRC:
               case MessageType::WRITE_MODULE_NAME:
-              case MessageType::WRITE_MODULE_ID:
+              case MessageType::WRITE_MODULE_CAN_ID:
               case MessageType::RESET:
               default:
               {
-                  AcknowledgeUID txMessage = AcknowledgeUID(_sequence, inMessage, status, _uid);
+                  AcknowledgeUID txMessage = AcknowledgeUID(_sequence, inMessage, status, _moduleUID);
                   _transport.transmit(txMessage.asMessage(), AcknowledgeUID::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
               }
             } // switch
@@ -471,7 +419,7 @@ public:
             messages::Announce m;
             m.command    = MessageType::REQUEST;
             m.sequenceId = 0x00;
-            m.data.uid   = _uid;
+            m.data.uid   = _moduleUID;
             _transport.transmit(&m, messages::Announce::MESSAGE_LENGTH, BOOTLOADER_MASTER_TOPIC_ID);
         }
     }
@@ -484,7 +432,7 @@ public:
     {
         const messages::IdentifySlave* m = reinterpret_cast<const messages::IdentifySlave*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             return identify(true);
         } else {
             return identify(false);
@@ -498,7 +446,7 @@ public:
     {
         const messages::SelectSlave* m = reinterpret_cast<const messages::SelectSlave*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             _sequence = m->sequenceId; // The sequence number is re-aligned
             return select();
         } else {
@@ -516,7 +464,7 @@ public:
     {
         const messages::DeselectSlave* m = reinterpret_cast<const messages::DeselectSlave*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -545,7 +493,7 @@ public:
     {
         const messages::EraseConfiguration* m = reinterpret_cast<const messages::EraseConfiguration*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -572,7 +520,7 @@ public:
     {
         const messages::EraseConfiguration* m = reinterpret_cast<const messages::EraseConfiguration*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -599,7 +547,7 @@ public:
     {
         const messages::EraseProgram* m = reinterpret_cast<const messages::EraseProgram*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -626,7 +574,7 @@ public:
     {
         const messages::WriteProgramCrc* m = reinterpret_cast<const messages::WriteProgramCrc*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -653,7 +601,7 @@ public:
     {
         const messages::WriteModuleName* m = reinterpret_cast<const messages::WriteModuleName*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -674,19 +622,19 @@ public:
     } // writeModuleNameMessage
 
     AcknowledgeStatus
-    writeModuleIDMessaqe(
+    writeCanIDMessaqe(
         const Message* message
     )
     {
         const messages::WriteModuleID* m = reinterpret_cast<const messages::WriteModuleID*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
                 } else {
                     _sequence = m->sequenceId;
-                    return writeModuleID(m->data.id);
+                    return writeCanID(m->data.id);
                 }
             } else {
                 return AcknowledgeStatus::NOT_SELECTED;
@@ -707,7 +655,7 @@ public:
     {
         const messages::Describe* m = reinterpret_cast<const messages::Describe*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -753,7 +701,7 @@ public:
     {
         const messages::IHexRead* m = reinterpret_cast<const messages::IHexRead*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -810,7 +758,7 @@ public:
     {
         const messages::Reset* m = reinterpret_cast<const messages::Reset*>(message);
 
-        if (m->data.uid == _uid) {
+        if (m->data.uid == _moduleUID) {
             if (_selected) {
                 if (m->sequenceId != (uint8_t)(_sequence + 2)) {
                     return AcknowledgeStatus::WRONG_SEQUENCE;
@@ -931,11 +879,11 @@ public:
     }
 
     AcknowledgeStatus
-    writeModuleID(
+    writeCanID(
         uint8_t id
     )
     {
-        if (configurationStorage.writeModuleID(id)) {
+        if (configurationStorage.writeCanID(id)) {
             return AcknowledgeStatus::OK;
         } else {
             return AcknowledgeStatus::ERROR;
@@ -1025,8 +973,8 @@ public:
     AcknowledgeStatus
     bootload()
     {
-        hw::setNVR(hw::WatchdogReason::USER_REQUEST);
-        hw::watchdogEnable(hw::watchdogPeriod::PERIOD_800_MS);
+        hw::setNVR(hw::Watchdog::Reason::USER_REQUEST);
+        hw::Watchdog::enable(hw::Watchdog::Period::_800_ms);
 
         while (1) {}
     }
@@ -1089,9 +1037,7 @@ private:
     bool    _loading;
     IProtocolTransport& _transport;
     ihex_state          _ihex;
-}
-
-;
+};
 
 class CANTransport:
     public IProtocolTransport
@@ -1139,7 +1085,7 @@ public:
 
             rtcan_msg_t* rtcan_msg_p;
             rtcan_msg_p       = &_messageTx;
-            rtcan_msg_p->id   = topic << 8 | _moduleID;
+            rtcan_msg_p->id   = topic << 8 | _canID;
             rtcan_msg_p->size = s;
 
             rtcanTransmit(&RTCAND1, &_messageTx, MS2ST(100)); // The timeout is random
@@ -1215,7 +1161,7 @@ public:
         rtcan_msg_t* rtcan_msg_p;
 
         rtcan_msg_p           = &_messageTx;
-        rtcan_msg_p->id       = (BOOTLOADER_TOPIC_ID << 8) | _moduleID;
+        rtcan_msg_p->id       = (BOOTLOADER_TOPIC_ID << 8) | _canID;
         rtcan_msg_p->callback = nullptr;
         rtcan_msg_p->params   = this;
         rtcan_msg_p->size     = LONG_MESSAGE_LENGTH;
@@ -1328,12 +1274,6 @@ private:
 };
 }
 
-/// DEBUGGING DEFINES                  ///
-/// For production: both must be false ///
-#define FORCE_LOADER    false
-#define OVERRIDE_LOADER false
-/// ---------------------------------- ///
-
 void
 boot()
 {
@@ -1344,14 +1284,14 @@ boot()
     core::stm32_crc::CRC::setPolynomialSize(core::stm32_crc::CRC::PolynomialSize::POLY_32);
     core::stm32_crc::CRC::CRCBlock((uint32_t*)programStorage.from(), programStorage.size() / sizeof(uint32_t));
 
-    hw::setNVR(hw::WatchdogReason::NO_APPLICATION);
+    hw::setNVR(hw::Watchdog::Reason::NO_APPLICATION);
 
     volatile uint32_t imageCRC = configurationStorage.getModuleConfiguration()->imageCRC;
     volatile uint32_t flashCRC = core::stm32_crc::CRC::getCRC();
 
     if (imageCRC != flashCRC) {
         // The image is broken, do not even try to run it!!!
-        hw::watchdogEnable(hw::watchdogPeriod::PERIOD_1600_MS);
+        hw::Watchdog::enable(hw::Watchdog::Period::_1600_ms);
 
         while (1) {
             osalThreadSleepMilliseconds(2000);
@@ -1360,7 +1300,7 @@ boot()
 
     // ... try to boot the App!
     if (!OVERRIDE_LOADER) {
-        hw::watchdogEnable(hw::watchdogPeriod::PERIOD_6400_MS); // give the App some time to start...
+        hw::Watchdog::enable(hw::Watchdog::Period::_6400_ms); // give the App some time to start...
     }
 
     rtcanStop(&RTCAND1);
@@ -1381,18 +1321,17 @@ THD_FUNCTION(bootloaderThread, arg) {
     }
 
     // Setup some globals...
-
-    _moduleID = configurationStorage.getModuleConfiguration()->moduleID;
-
     core::stm32_crc::CRC::init();
     core::stm32_crc::CRC::setPolynomialSize(core::stm32_crc::CRC::PolynomialSize::POLY_32);
 
-    _uid = core::stm32_crc::CRC::CRCBlock((uint32_t*)hw::getUID().data(), hw::getUID().size() / sizeof(uint32_t));
+    _moduleUID = core::stm32_crc::CRC::CRCBlock((uint32_t*)hw::getUID().data(), hw::getUID().size() / sizeof(uint32_t));
 
-    rng(_uid);
+    rng(_moduleUID);
 
-    while (_moduleID == 0xFF) {
-        _moduleID = rng();
+    _canID = configurationStorage.getModuleConfiguration()->canID;
+
+    while (_canID == 0xFF) {
+        _canID = rng();
     }
 
     // Done
@@ -1400,7 +1339,7 @@ THD_FUNCTION(bootloaderThread, arg) {
 #if OVERRIDE_LOADER
     boot();
 #else
-    hw::watchdogReload();
+    hw::Watchdog::reload();
 #endif
 
     // Depending on how we got here, we must do something different:
@@ -1414,23 +1353,23 @@ THD_FUNCTION(bootloaderThread, arg) {
 #else
     if (hw::getResetSource() == hw::ResetSource::WATCHDOG) {
         // The watchdog has resetted the uC, why?
-        if (hw::getNVR() == hw::WatchdogReason::BOOT_APPLICATION) {
+        if (hw::getNVR() == hw::Watchdog::Reason::BOOT_APPLICATION) {
             // We were explicitely requested to boot the application. Do not even try to init the bootloader protocol
             boot();
-        } else if (hw::getNVR() == hw::WatchdogReason::NO_APPLICATION) {
+        } else if (hw::getNVR() == hw::Watchdog::Reason::NO_APPLICATION) {
             // We tried to boot, but without success. Do not try again, the result will be the same.
             // Initialize the bootloader and see what happens.
             tryToBoot = false;
             bootload  = false;
-        } else if (hw::getNVR() == hw::WatchdogReason::USER_REQUEST) {
+        } else if (hw::getNVR() == hw::Watchdog::Reason::USER_REQUEST) {
             // We were explicitely requested to start the bootloader. So we will not boot the app.
             tryToBoot = false;
             bootload  = true;
         }
     }
 
-    hw::setNVR(hw::WatchdogReason::TRANSPORT_FAIL); // If anything goes wrong, die.
-    hw::watchdogEnable(hw::watchdogPeriod::PERIOD_6400_MS); // Take it easy!
+    hw::setNVR(hw::Watchdog::Reason::TRANSPORT_FAIL); // If anything goes wrong, die.
+    hw::Watchdog::enable(hw::Watchdog::Period::_6400_ms); // Take it easy!
 #endif // if FORCE_LOADER
 
     bool waitForMaster = true;
@@ -1439,7 +1378,7 @@ THD_FUNCTION(bootloaderThread, arg) {
         // Wait for a bootloader master to advertise it's existence
         transport.waitForMaster();
 
-        hw::watchdogReload();
+        hw::Watchdog::reload();
 
         osalSysLock();
         msg_t msg = osalThreadSuspendTimeoutS(&trp, MS2ST(2000)); // In the meanwhile, sleep.
@@ -1473,14 +1412,14 @@ THD_FUNCTION(bootloaderThread, arg) {
         uint8_t cnt = 0;
 
 #if !FORCE_LOADER
-        hw::setNVR(hw::WatchdogReason::BOOT_APPLICATION); // Fallback if the bootloader stops working
-        hw::watchdogEnable(hw::watchdogPeriod::PERIOD_6400_MS); // Take it easy!
+        hw::setNVR(hw::Watchdog::Reason::BOOT_APPLICATION); // Fallback if the bootloader stops working
+        hw::Watchdog::enable(hw::Watchdog::Period::_6400_ms); // Take it easy!
 #endif
 
         while (1) {
             msg_t msg;
 
-            hw::watchdogReload();
+            hw::Watchdog::reload();
 
             osalSysLock();
 
@@ -1511,17 +1450,15 @@ THD_FUNCTION(bootloaderThread, arg) {
             loopForever = true;
         } else {
             // The board has been reset, if we do not receive a bootload request, try to boot the application!
-            hw::setNVR(hw::WatchdogReason::BOOT_APPLICATION);
-            hw::watchdogEnable(hw::watchdogPeriod::PERIOD_1600_MS); // Give the protocol some time to catch a bootload message...
+            hw::setNVR(hw::Watchdog::Reason::BOOT_APPLICATION);
+            hw::Watchdog::enable(hw::Watchdog::Period::_1600_ms); // Give the protocol some time to catch a bootload message...
         }
-
-//        loopForever = true;
 
         while (1) {
             msg_t msg;
 
             if (loopForever) {
-                hw::watchdogReload();
+                hw::Watchdog::reload();
             }
 
             osalSysLock();

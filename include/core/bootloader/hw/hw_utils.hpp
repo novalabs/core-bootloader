@@ -9,8 +9,8 @@
 #include <stdint.h>
 #include <core/Array.hpp>
 
-// #define OVERRIDE_WATCHDOG 1
-
+// The following overrides the watchdog - useful only during debugging!
+//#define OVERRIDE_WATCHDOG 1
 
 namespace hw {
 typedef enum {
@@ -24,6 +24,7 @@ void
 reset();
 
 
+// Make sure size is multiple of 4
 using UID = Array<uint8_t, 12>;
 
 const UID&
@@ -38,29 +39,35 @@ setNVR(
 );
 
 
-enum WatchdogReason : uint32_t {
-    NO_APPLICATION   = 0xCAFEBABE,
-    USER_REQUEST     = 0xB0BAFE77,
-    BOOT_APPLICATION = 0xBAADF00D,
-    TRANSPORT_FAIL   = 0xACABACAB
+class Watchdog
+{
+public:
+    static void
+    freezeOnDebug();
+
+
+    enum Reason : uint32_t {
+        NO_APPLICATION   = 0xCAFEBABE,
+        USER_REQUEST     = 0xB0BAFE77,
+        BOOT_APPLICATION = 0xBAADF00D,
+        TRANSPORT_FAIL   = 0xACABACAB
+    };
+
+    enum Period {
+        _0_ms,
+        _800_ms,
+        _1600_ms,
+        _6400_ms
+    };
+
+    static void
+    enable(
+        Period period
+    );
+
+    static void
+    reload();
 };
-
-
-enum watchdogPeriod {
-    PERIOD_0_MS,
-    PERIOD_800_MS,
-    PERIOD_1600_MS,
-    PERIOD_6400_MS
-};
-
-void
-watchdogEnable(
-    watchdogPeriod period
-);
-
-void
-watchdogReload();
-
 
 typedef void (* pFunction)(
     void
