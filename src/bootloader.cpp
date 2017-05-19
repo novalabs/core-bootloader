@@ -1286,21 +1286,24 @@ boot()
 
     hw::setNVR(hw::Watchdog::Reason::NO_APPLICATION);
 
-    volatile uint32_t imageCRC = configurationStorage.getModuleConfiguration()->imageCRC;
-    volatile uint32_t flashCRC = core::stm32_crc::CRC::getCRC();
+    if (!OVERRIDE_LOADER) {
+        volatile uint32_t imageCRC = configurationStorage.getModuleConfiguration()->imageCRC;
+        volatile uint32_t flashCRC = core::stm32_crc::CRC::getCRC();
 
-    if (imageCRC != flashCRC) {
-        // The image is broken, do not even try to run it!!!
-        hw::Watchdog::enable(hw::Watchdog::Period::_1600_ms);
+        if (imageCRC != flashCRC) {
+            // The image is broken, do not even try to run it!!!
+            hw::Watchdog::enable(hw::Watchdog::Period::_1600_ms);
 
-        while (1) {
-            osalThreadSleepMilliseconds(2000);
+            while (1) {
+                osalThreadSleepMilliseconds(2000);
+            }
         }
     }
 
     // ... try to boot the App!
     if (!OVERRIDE_LOADER) {
         hw::Watchdog::enable(hw::Watchdog::Period::_6400_ms); // give the App some time to start...
+        hw::Watchdog::reload();
     }
 
     rtcanStop(&RTCAND1);
@@ -1310,6 +1313,9 @@ boot()
 
 THD_WORKING_AREA(bootloaderThreadWorkingArea, 4096);
 THD_FUNCTION(bootloaderThread, arg) {
+    hw::Watchdog::enable(hw::Watchdog::Period::_6400_ms);
+    hw::Watchdog::reload();
+
     bootloader::CANTransport  transport;
     bootloader::SlaveProtocol proto(transport);
 
@@ -1390,6 +1396,7 @@ THD_FUNCTION(bootloaderThread, arg) {
                 // ... because it did not responded in time
                 if (tryToBoot) {
                     // if we were supposed to boot
+                    hw::Watchdog::reload();
                     boot();
                 }
             } else {
@@ -1401,8 +1408,6 @@ THD_FUNCTION(bootloaderThread, arg) {
             waitForMaster = false;
         }
     }
-
-    //bootload = true;
 
     if (bootload) {
         // We must bootload

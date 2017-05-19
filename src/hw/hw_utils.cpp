@@ -91,27 +91,33 @@ Watchdog::enable(
 #ifndef OVERRIDE_WATCHDOG
     switch (period) {
       case Period::_0_ms:
-          IWDG->KR  = 0x5555;   // enable access
-          IWDG->PR  = 1;    // /8
-          IWDG->RLR = 0x1;   // maximum (circa 800 ms)
-          IWDG->KR  = 0xCCCC;   // start watchdog
+          IWDG->KR  = 0x5555; // enable access
+          IWDG->PR  = 1;      // /8
+          IWDG->RLR = 0x1;    // maximum (circa 0 ms)
+          IWDG->KR  = 0xCCCC; // start watchdog
           break;
       case Period::_800_ms:
           IWDG->KR  = 0x5555; // enable access
-          IWDG->PR  = 1;  // /8
-          IWDG->RLR = 0xFFF; // maximum (circa 800 ms)
+          IWDG->PR  = 1;      // /8
+          IWDG->RLR = 0xFFF;  // maximum (circa 800 ms)
           IWDG->KR  = 0xCCCC; // start watchdog
           break;
       case Period::_1600_ms:
           IWDG->KR  = 0x5555; // enable access
-          IWDG->PR  = 2;  // /16
-          IWDG->RLR = 0xFFF; // maximum (circa 1600 ms)
+          IWDG->PR  = 2;      // /16
+          IWDG->RLR = 0xFFF;  // maximum (circa 1600 ms)
+          IWDG->KR  = 0xCCCC; // start watchdog
+          break;
+      case Period::_3200_ms:
+          IWDG->KR  = 0x5555; // enable access
+          IWDG->PR  = 3;      // /32
+          IWDG->RLR = 0xFFF;  // maximum (circa 3200 ms)
           IWDG->KR  = 0xCCCC; // start watchdog
           break;
       default:
           IWDG->KR  = 0x5555; // enable access
-          IWDG->PR  = 4;  // /64
-          IWDG->RLR = 0xFFF; // maximum (circa 6400 ms)
+          IWDG->PR  = 4;      // /64
+          IWDG->RLR = 0xFFF;  // maximum (circa 6400 ms)
           IWDG->KR  = 0xCCCC; // start watchdog
           break;
     } // switch
