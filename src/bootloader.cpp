@@ -32,13 +32,13 @@
 
 //--- LED BLINKING SEQUENCES --------------------------------------------------
 static const uint8_t led_waiting[] = {
-    LED_ON(75), LED_OFF(300), LED_LOOP()
+    LED_ON(50), LED_OFF(500), LED_LOOP()
 };
 static const uint8_t led_initialized[] = {
-    LED_ON(75), LED_OFF(100), LED_ON(75), LED_OFF(300), LED_LOOP()
+    LED_ON(50), LED_OFF(150), LED_ON(50), LED_OFF(500), LED_LOOP()
 };
 static const uint8_t led_booting[] = {
-    LED_ON(75), LED_OFF(100), LED_ON(75), LED_OFF(100), LED_ON(75), LED_OFF(300), LED_LOOP()
+    LED_ON(50), LED_OFF(150), LED_ON(50), LED_OFF(150), LED_ON(50), LED_OFF(500), LED_LOOP()
 };
 static const uint8_t led_loading[] = {
     LED_ON(200), LED_OFF(100), LED_ON(200), LED_OFF(500), LED_LOOP()
@@ -1426,7 +1426,7 @@ THD_FUNCTION(bootloaderThread, arg) {
             msg = osalThreadSuspendTimeoutS(&trp, MS2ST(100));
 
             if (msg != RESUME_BOOTLOADER) {
-                if (cnt & 0x0F) {
+                if ((cnt & 0x03) == 0x03) {
                     proto.announce();
                 }
 
