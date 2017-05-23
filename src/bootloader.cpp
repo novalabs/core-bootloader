@@ -81,7 +81,8 @@ static const auto         RESUME_BOOTLOADER = (msg_t)0xCACCAB0B;     // Message 
 static bootloader::ModuleUID _moduleUID; // Module UID
 static uint8_t _canID; // CAN ID
 
-LFSR<uint16_t, 0x82EEu> rng(0); // PRNG
+//LFSR<uint16_t, 0x82EEu> rng(0); // PRNG
+LFSR<uint32_t, 0x80000ACDu> rng(0); // PRNG
 
 uint8_t data[bootloader::MAXIMUM_MESSAGE_LENGTH];
 
