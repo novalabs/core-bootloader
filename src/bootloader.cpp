@@ -1145,6 +1145,7 @@ public:
         rtcan_msg_p->size     = SHORT_MESSAGE_LENGTH;
         rtcan_msg_p->data     = reinterpret_cast<uint8_t*>(&_bufferRxShort0);
         rtcan_msg_p->status   = RTCAN_MSG_READY;
+        rtcan_msg_p->rx_isr   = nullptr;
 
         rtcanReceiveMask(&RTCAND1, &_messageRxShort, 0xFF00);
 
@@ -1167,6 +1168,7 @@ public:
         rtcan_msg_p->size     = LONG_MESSAGE_LENGTH;
         rtcan_msg_p->data     = reinterpret_cast<uint8_t*>(&_bufferTx);
         rtcan_msg_p->status   = RTCAN_MSG_READY;
+        rtcan_msg_p->rx_isr   = nullptr;
 
         rtcan_msg_p           = &_messageRxLong;
         rtcan_msg_p->id       = (BOOTLOADER_TOPIC_ID << 8) | _filterId;
@@ -1175,6 +1177,7 @@ public:
         rtcan_msg_p->size     = LONG_MESSAGE_LENGTH;
         rtcan_msg_p->data     = reinterpret_cast<uint8_t*>(&_bufferRxLong0);
         rtcan_msg_p->status   = RTCAN_MSG_READY;
+        rtcan_msg_p->rx_isr   = nullptr;
 
         rtcanReceive(&RTCAND1, &_messageRxLong);
 
