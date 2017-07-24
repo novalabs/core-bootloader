@@ -1325,7 +1325,7 @@ THD_FUNCTION(bootloaderThread, arg) {
 
     proto.initialize();
 
-    if (configurationStorage.getModuleConfiguration()->name[0] == 0xFF) {
+    if (configurationStorage.getModuleConfiguration()->name[0] == '*') {
         // Name is empty, let's fill it with the default
         configurationStorage.writeModuleName(DEFAULT_MODULE_NAME);
     }
