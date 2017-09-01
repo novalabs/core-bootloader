@@ -26,12 +26,12 @@ THD_FUNCTION(bootloaderThread, arg);
 #include <core/Array.hpp>
 
 namespace bootloader {
-// WARNING: KEEP THE FOLLOWING SYNCHED WITH THE MW
 
+// WARNING: KEEP THE FOLLOWING SYNCHED WITH THE MW
 using ProductUID = uint16_t;
 using ModuleUID  = uint32_t;
 using ModuleType = Array<char, 12>;
-using ModuleName = Array<char, 14>;
+using ModuleName = Array<char, 16>;
 
 static const uint32_t SHORT_MESSAGE_LENGTH = 8;
 static const uint32_t LONG_MESSAGE_LENGTH  = 48;
@@ -197,7 +197,7 @@ public:
 
     PAYLOAD data;
 
-    uint8_t padding[ContainerType::MESSAGE_LENGTH - sizeof(ContainerType) - sizeof(data)];
+    uint8_t padding[ContainerType::MESSAGE_LENGTH - sizeof(AcknowledgeMessage<CONTAINER>) - sizeof(data)];
 }
 
 CORE_PACKED_ALIGNED;
