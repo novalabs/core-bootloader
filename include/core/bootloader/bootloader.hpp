@@ -56,11 +56,12 @@ enum class MessageType : uint8_t {
     WRITE_PROGRAM_CRC        = 0x06,
     ERASE_USER_CONFIGURATION = 0x07,
 
-    MODULE_NAME         = 0x25,
-    READ_MODULE_NAME    = 0x26,
+    // MODULE_NAME         = 0x25,
+    // READ_MODULE_NAME    = 0x26,
     WRITE_MODULE_NAME   = 0x27,
     WRITE_MODULE_CAN_ID = 0x28,
-    DESCRIBE            = 0x29,
+    DESCRIBE_V1         = 0x29,
+    DESCRIBE            = 0x26,
 
     IHEX_WRITE = 0x50,
     IHEX_READ  = 0x51,

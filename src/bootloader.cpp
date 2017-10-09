@@ -18,6 +18,7 @@
 #include "kk_ihex/kk_ihex_read.h"
 #include "kk_ihex/kk_ihex_write.h"
 #include <rtcan.h>
+#include <rtcan_lld_can.h>
 #include <core/stm32_flash/ConfigurationStorage.hpp>
 #include <core/stm32_flash/ProgramStorage.hpp>
 #include <core/stm32_crc/CRC.hpp>
@@ -366,7 +367,7 @@ public:
               status = resetMessage(inMessage);
               break;
           default:
-              status = AcknowledgeStatus::DISCARD;
+              status = AcknowledgeStatus::NOT_IMPLEMENTED;
         } // switch
 
         if ((status != AcknowledgeStatus::DISCARD) && (status != AcknowledgeStatus::DO_NOT_ACK)) {
@@ -384,7 +385,8 @@ public:
                                                                       configurationStorage.getModuleConfiguration()->canID,
                                                                       DEFAULT_MODULE_NAME,
                                                                       configurationStorage.getModuleConfiguration()->name,
-                                                                      configurationStorage.userDataSize(), programStorage.size()
+                                                                      configurationStorage.userDataSize(), programStorage.size(),
+                                                                      configurationStorage.getModuleConfiguration()->imageCRC, programStorage.updateCRC()
                                                   );
                   _transport.transmit(txMessage.asMessage(), AcknowledgeDescribe::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
               }
@@ -406,7 +408,8 @@ public:
                   _transport.transmit(txMessage.asMessage(), AcknowledgeUID::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
               }
             } // switch
-        } else if (status == AcknowledgeStatus::DISCARD) {} else {
+        } else if (status == AcknowledgeStatus::DISCARD) {
+        } else {
             // The message was not for us...
         }
 #endif // ifdef LOOPBACK
@@ -1075,6 +1078,15 @@ public:
     } // initializeTransport
 
     bool
+    stop(
+    )
+    {
+        rtcanStop(&RTCAND1);
+
+        return true;
+    } // initializeTransport
+
+    bool
     transmit(
         const Message* m,
         std::size_t    s,
@@ -1284,15 +1296,11 @@ boot()
     blinkerSetActive(true);
     blinkerSetPattern(led_booting);
 
-    core::stm32_crc::CRC::init();
-    core::stm32_crc::CRC::setPolynomialSize(core::stm32_crc::CRC::PolynomialSize::POLY_32);
-    core::stm32_crc::CRC::CRCBlock((uint32_t*)programStorage.from(), programStorage.size() / sizeof(uint32_t));
-
     hw::setNVR(hw::Watchdog::Reason::NO_APPLICATION);
 
     if (!OVERRIDE_LOADER) {
         volatile uint32_t imageCRC = configurationStorage.getModuleConfiguration()->imageCRC;
-        volatile uint32_t flashCRC = core::stm32_crc::CRC::getCRC();
+        volatile uint32_t flashCRC = programStorage.updateCRC();
 
         if (imageCRC != flashCRC) {
             // The image is broken, do not even try to run it!!!
@@ -1311,6 +1319,7 @@ boot()
     }
 
     rtcanStop(&RTCAND1);
+//    rtcan_lld_can_force_stop(&RTCAND1);
 
     hw::jumptoapp(programStorage.from());
 } // boot
