@@ -70,11 +70,22 @@ struct DescribeV1 {
     ModuleName moduleName;
 };
 
-struct Describe {
+struct DescribeV2 {
     uint32_t   programFlashSize;
     uint32_t   confCRC;
     uint32_t   flashCRC;
     uint16_t   userFlashSize;
+    uint8_t    moduleId;
+    ModuleType moduleType;
+    ModuleName moduleName;
+};
+
+struct DescribeV3 {
+    uint32_t   programFlashSize;
+    uint16_t   userFlashSize;
+    uint16_t   tagsFlashSize;
+    uint8_t    programValid;
+    uint8_t    userValid;
     uint8_t    moduleId;
     ModuleType moduleType;
     ModuleName moduleName;
@@ -97,7 +108,8 @@ using EraseConfiguration = Message_<LongMessage, MessageType::ERASE_CONFIGURATIO
 using EraseProgram       = Message_<LongMessage, MessageType::ERASE_PROGRAM, payload::UID>;
 using WriteProgramCrc    = Message_<LongMessage, MessageType::WRITE_PROGRAM_CRC, payload::UIDAndCRC>;
 using DescribeV1 = Message_<LongMessage, MessageType::DESCRIBE_V1, payload::UID>;
-using Describe = Message_<LongMessage, MessageType::DESCRIBE, payload::UID>;
+using DescribeV2   = Message_<LongMessage, MessageType::DESCRIBE_V2, payload::UID>;
+using DescribeV3   = Message_<LongMessage, MessageType::DESCRIBE_V3, payload::UID>;
 
 using IHexData = Message_<LongMessage, MessageType::IHEX_READ, payload::IHex>;
 
@@ -203,11 +215,11 @@ public:
 
 CORE_PACKED_ALIGNED;
 
-class AcknowledgeDescribe:
-    public AcknowledgeMessage_<LongMessage, payload::Describe>
+class AcknowledgeDescribeV2:
+    public AcknowledgeMessage_<LongMessage, payload::DescribeV2>
 {
 public:
-    AcknowledgeDescribe(
+    AcknowledgeDescribeV2(
         uint8_t           sequence,
         const Message*    message,
         AcknowledgeStatus status,
@@ -237,7 +249,7 @@ public:
         }
     }
 
-    AcknowledgeDescribe(
+    AcknowledgeDescribeV2(
         uint8_t           sequence,
         const Message&    message,
         AcknowledgeStatus status,
@@ -270,6 +282,76 @@ public:
 
 CORE_PACKED_ALIGNED;
 
+class AcknowledgeDescribeV3:
+    public AcknowledgeMessage_<LongMessage, payload::DescribeV3>
+{
+public:
+    AcknowledgeDescribeV3(
+        uint8_t           sequence,
+        const Message*    message,
+        AcknowledgeStatus status,
+        uint8_t           moduleId,
+        const char*       module_type,
+        const char*       module_name,
+        uint32_t          user_flash_size,
+        uint32_t          program_flash_size,
+        uint32_t          tags_flash_size,
+        bool              program_valid,
+		bool              user_valid
+    )
+    {
+        this->sequenceId = sequence + 1;
+        this->type       = static_cast<MessageType>(message->command);
+        this->status     = status;
+
+        if (status == AcknowledgeStatus::OK) {
+            this->data.moduleId = moduleId;
+            this->data.moduleType.copyFrom(module_type);
+            this->data.moduleName.copyFrom(module_name);
+            this->data.userFlashSize    = user_flash_size;
+            this->data.programFlashSize = program_flash_size;
+            this->data.tagsFlashSize    = tags_flash_size;
+            this->data.programValid     = program_valid ? 1 : 0;
+            this->data.userValid        = user_valid ? 1 : 0;
+        } else {
+            memset(&this->data, 0, sizeof(this->data));
+        }
+    }
+
+    AcknowledgeDescribeV3(
+        uint8_t           sequence,
+        const Message&    message,
+        AcknowledgeStatus status,
+        uint8_t           moduleId,
+        const char*       module_type,
+        const char*       module_name,
+        uint32_t          user_flash_size,
+        uint32_t          program_flash_size,
+        uint32_t          tags_flash_size,
+        bool              program_valid,
+		bool              user_valid
+    )
+    {
+        this->sequenceId = sequence + 1;
+        this->type       = static_cast<MessageType>(message.command);
+        this->status     = status;
+
+        if (status == AcknowledgeStatus::OK) {
+            this->data.moduleId = moduleId;
+            this->data.moduleType.copyFrom(module_type);
+            this->data.moduleName.copyFrom(module_name);
+            this->data.userFlashSize    = user_flash_size;
+            this->data.programFlashSize = program_flash_size;
+            this->data.tagsFlashSize    = tags_flash_size;
+            this->data.programValid     = program_valid ? 1 : 0;
+            this->data.userValid        = user_valid ? 1 : 0;
+        } else {
+            memset(&this->data, 0, sizeof(this->data));
+        }
+    }
+}
+
+CORE_PACKED_ALIGNED;
 
 class AcknowledgeString:
     public AcknowledgeMessage_<LongMessage, char[44]>

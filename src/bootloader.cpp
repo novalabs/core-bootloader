@@ -357,8 +357,11 @@ public:
           case MessageType::WRITE_MODULE_CAN_ID:
               status = writeCanIDMessaqe(inMessage);
               break;
-          case MessageType::DESCRIBE:
-              status = describeMessaqe(inMessage);
+          case MessageType::DESCRIBE_V2:
+              status = describeV2Messaqe(inMessage);
+              break;
+          case MessageType::DESCRIBE_V3:
+              status = describeV3Messaqe(inMessage);
               break;
           case MessageType::BOOTLOAD:
               status = AcknowledgeStatus::DISCARD;
@@ -379,16 +382,32 @@ public:
                   _transport.transmit(txMessage.asMessage(), AcknowledgeString::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
               }
               break;
-              case MessageType::DESCRIBE:
+              case MessageType::DESCRIBE_V2:
               {
-                  AcknowledgeDescribe txMessage = AcknowledgeDescribe(_sequence, inMessage, status,
+                  AcknowledgeDescribeV2 txMessage = AcknowledgeDescribeV2(_sequence, inMessage, status,
                                                                       configurationStorage.getModuleConfiguration()->canID,
                                                                       DEFAULT_MODULE_NAME,
                                                                       configurationStorage.getModuleConfiguration()->name,
                                                                       configurationStorage.userDataSize(), programStorage.size(),
                                                                       configurationStorage.getModuleConfiguration()->imageCRC, programStorage.updateCRC()
                                                   );
-                  _transport.transmit(txMessage.asMessage(), AcknowledgeDescribe::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
+                  _transport.transmit(txMessage.asMessage(), AcknowledgeDescribeV2::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
+              }
+              break;
+              case MessageType::DESCRIBE_V3:
+              {
+                  uint32_t imageCRC = configurationStorage.getModuleConfiguration()->imageCRC;
+                  uint32_t flashCRC = programStorage.updateCRC();
+
+                  AcknowledgeDescribeV3 txMessage = AcknowledgeDescribeV3(_sequence, inMessage, status,
+                                                                      configurationStorage.getModuleConfiguration()->canID,
+                                                                      DEFAULT_MODULE_NAME,
+                                                                      configurationStorage.getModuleConfiguration()->name,
+                                                                      configurationStorage.userDataSize(), programStorage.size(),
+																	  core::stm32_flash::TAGS_FLASH_SIZE,
+                                                                      configurationStorage.isValid(), imageCRC == flashCRC
+                                                  );
+                  _transport.transmit(txMessage.asMessage(), AcknowledgeDescribeV3::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
               }
               break;
               case MessageType::IHEX_WRITE:
@@ -653,11 +672,11 @@ public:
     } // writeProgramCRCMessage
 
     AcknowledgeStatus
-    describeMessaqe(
+    describeV2Messaqe(
         const Message* message
     )
     {
-        const messages::Describe* m = reinterpret_cast<const messages::Describe*>(message);
+        const messages::DescribeV2* m = reinterpret_cast<const messages::DescribeV2*>(message);
 
         if (m->data.uid == _moduleUID) {
             if (_selected) {
@@ -677,7 +696,34 @@ public:
                 return AcknowledgeStatus::DISCARD;
             }
         }
-    } // writeProgramCRCMessage
+    }
+
+    AcknowledgeStatus
+    describeV3Messaqe(
+        const Message* message
+    )
+    {
+        const messages::DescribeV3* m = reinterpret_cast<const messages::DescribeV3*>(message);
+
+        if (m->data.uid == _moduleUID) {
+            if (_selected) {
+                if (m->sequenceId != (uint8_t)(_sequence + 2)) {
+                    return AcknowledgeStatus::WRONG_SEQUENCE;
+                } else {
+                    _sequence = m->sequenceId;
+                    return AcknowledgeStatus::OK;
+                }
+            } else {
+                return AcknowledgeStatus::NOT_SELECTED;
+            }
+        } else {
+            if (_selected) {
+                return AcknowledgeStatus::WRONG_UID;
+            } else {
+                return AcknowledgeStatus::DISCARD;
+            }
+        }
+    }
 
     AcknowledgeStatus
     iHexWriteMessage(

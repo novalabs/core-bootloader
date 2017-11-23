@@ -61,7 +61,8 @@ enum class MessageType : uint8_t {
     WRITE_MODULE_NAME   = 0x27,
     WRITE_MODULE_CAN_ID = 0x28,
     DESCRIBE_V1         = 0x29,
-    DESCRIBE            = 0x26,
+    DESCRIBE_V2         = 0x26,
+    DESCRIBE_V3         = 0x30,
 
     IHEX_WRITE = 0x50,
     IHEX_READ  = 0x51,
