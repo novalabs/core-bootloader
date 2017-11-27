@@ -111,6 +111,8 @@ using DescribeV1 = Message_<LongMessage, MessageType::DESCRIBE_V1, payload::UID>
 using DescribeV2   = Message_<LongMessage, MessageType::DESCRIBE_V2, payload::UID>;
 using DescribeV3   = Message_<LongMessage, MessageType::DESCRIBE_V3, payload::UID>;
 
+using TagsRead = Message_<LongMessage, MessageType::TAGS_READ, payload::UIDAndAddress>;
+
 using IHexData = Message_<LongMessage, MessageType::IHEX_READ, payload::IHex>;
 
 using IHexRead = Message_<LongMessage, MessageType::IHEX_WRITE, payload::UIDAndAddress>;
@@ -413,6 +415,32 @@ public:
 
         while (i < sizeof(this->data)) {
             this->data[i] = 0;
+            i++;
+        }
+
+        this->status = status;
+    }
+}
+
+CORE_PACKED_ALIGNED;
+
+class AcknowledgeTags:
+    public AcknowledgeMessage_<LongMessage, char[16]>
+{
+public:
+	AcknowledgeTags(
+        uint8_t           sequence,
+        const Message*    message,
+        AcknowledgeStatus status,
+        const char*       string
+    )
+    {
+        this->sequenceId = sequence + 1;
+        this->type       = static_cast<MessageType>(message->command);
+        std::size_t i = 0;
+
+        while (i < sizeof(this->data)) {
+            this->data[i] = string[i];
             i++;
         }
 

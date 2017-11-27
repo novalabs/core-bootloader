@@ -64,6 +64,8 @@ enum class MessageType : uint8_t {
     DESCRIBE_V2         = 0x26,
     DESCRIBE_V3         = 0x30,
 
+	TAGS_READ           = 0x40,
+
     IHEX_WRITE = 0x50,
     IHEX_READ  = 0x51,
 
@@ -90,6 +92,7 @@ enum class AcknowledgeStatus : uint8_t {
     ERROR           = 0x08,
     IHEX_OK         = 0x09,
     DO_NOT_ACK      = 0x0A,
+	DONE            = 0x0B,
 };
 
 struct Message {

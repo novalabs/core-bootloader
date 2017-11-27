@@ -87,6 +87,10 @@ LFSR<uint32_t, 0x80000ACDu> rng(0); // PRNG
 
 uint8_t data[bootloader::MAXIMUM_MESSAGE_LENGTH];
 
+// TAGS
+static char   tagsBuffer[16];
+static size_t tagsReadOffset = 0;
+
 // IHEX -----------------------------------------------------------------------
 static char   ihexBuffer[256];
 static size_t ihexBufferReadOffset = 0;
@@ -363,6 +367,9 @@ public:
           case MessageType::DESCRIBE_V3:
               status = describeV3Messaqe(inMessage);
               break;
+          case MessageType::TAGS_READ:
+              status = TagsReadMessage(inMessage);
+              break;
           case MessageType::BOOTLOAD:
               status = AcknowledgeStatus::DISCARD;
               break;
@@ -376,6 +383,12 @@ public:
         if ((status != AcknowledgeStatus::DISCARD) && (status != AcknowledgeStatus::DO_NOT_ACK)) {
             switch (inMessage->command) {
               // implemented as a switch to keep it simple...
+              case MessageType::TAGS_READ:
+              {
+                  AcknowledgeTags txMessage = AcknowledgeTags(_sequence, inMessage, status, tagsBuffer);
+                  _transport.transmit(txMessage.asMessage(), AcknowledgeTags::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
+              }
+              break;
               case MessageType::IHEX_READ:
               {
                   AcknowledgeString txMessage = AcknowledgeString(_sequence, inMessage, status, ihexBuffer, ihexBufferReadOffset);
@@ -405,7 +418,7 @@ public:
                                                                       configurationStorage.getModuleConfiguration()->name,
                                                                       configurationStorage.userDataSize(), programStorage.size(),
 																	  core::stm32_flash::TAGS_FLASH_SIZE,
-                                                                      configurationStorage.isValid(), imageCRC == flashCRC
+																	  imageCRC == flashCRC, configurationStorage.isValid()
                                                   );
                   _transport.transmit(txMessage.asMessage(), AcknowledgeDescribeV3::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
               }
@@ -726,6 +739,34 @@ public:
     }
 
     AcknowledgeStatus
+    TagsReadMessage(
+        const Message* message
+    )
+    {
+        const messages::TagsRead* m = reinterpret_cast<const messages::TagsRead*>(message);
+
+        if (m->data.uid == _moduleUID) {
+            if (_selected) {
+                if (m->sequenceId != (uint8_t)(_sequence + 2)) {
+                    return AcknowledgeStatus::WRONG_SEQUENCE;
+                } else {
+                    _sequence = m->sequenceId;
+
+                    return tagsRead(m->data.address, tagsBuffer);
+                }
+            } else {
+                return AcknowledgeStatus::NOT_SELECTED;
+            }
+        } else {
+            if (_selected) {
+                return AcknowledgeStatus::WRONG_UID;
+            } else {
+                return AcknowledgeStatus::DISCARD;
+            }
+        }
+    } // iHexReadMessage
+
+    AcknowledgeStatus
     iHexWriteMessage(
         const Message* message
     )
@@ -941,6 +982,35 @@ public:
 
         return AcknowledgeStatus::OK;
     }
+
+    AcknowledgeStatus
+    tagsRead(
+        uint32_t address,
+        char*    buffer
+    )
+    {
+#if TAGS_SIZE > 0
+    	if(address == 0xFFFFFFFF) {
+    		address = tagsReadOffset;
+
+            if(tagsReadOffset == core::stm32_flash::TAGS_FLASH_SIZE) {
+            	return AcknowledgeStatus::DONE;
+            }
+    	}
+
+        if(address + 16 > core::stm32_flash::TAGS_FLASH_SIZE) {
+        	return AcknowledgeStatus::ERROR;
+        }
+
+        memcpy(buffer, reinterpret_cast<void*>(core::stm32_flash::TAGS_FLASH_FROM + address), 16);
+
+        tagsReadOffset = address + 16;
+
+        return AcknowledgeStatus::OK;
+#else
+        return AcknowledgeStatus::ERROR;
+#endif
+    } // ihexRead
 
     AcknowledgeStatus
     ihexWrite(
@@ -1367,7 +1437,7 @@ boot()
     rtcanStop(&RTCAND1);
 //    rtcan_lld_can_force_stop(&RTCAND1);
 
-    hw::jumptoapp(programStorage.from());
+    hw::jumptoapp(core::stm32_flash::PROGRAM_JUMP);
 } // boot
 
 THD_WORKING_AREA(bootloaderThreadWorkingArea, 4096);
@@ -1405,7 +1475,6 @@ THD_FUNCTION(bootloaderThread, arg) {
     boot();
 #else
     hw::Watchdog::reload();
-#endif
 
     // Depending on how we got here, we must do something different:
 
@@ -1536,6 +1605,7 @@ THD_FUNCTION(bootloaderThread, arg) {
             osalSysUnlock();
         }
     }
+#endif
 
     while (1) {
         // no return function
