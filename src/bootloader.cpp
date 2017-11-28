@@ -55,8 +55,10 @@ static const uint8_t led_selected[] = {
 };
 //-----------------------------------------------------------------------------
 
-#ifdef MODULE_NAME
+#if defined(MODULE_NAME)
 static const char DEFAULT_MODULE_NAME[] = MODULE_NAME;
+#elif defined(OVERRIDE_MODULE_NAME)
+static const char DEFAULT_MODULE_NAME[] = OVERRIDE_MODULE_NAME;
 #else
 static const char DEFAULT_MODULE_NAME[] = CORE_MODULE_NAME;
 #endif
