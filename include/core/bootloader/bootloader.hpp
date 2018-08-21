@@ -70,6 +70,7 @@ enum class MessageType : uint8_t {
     IHEX_READ  = 0x51,
 
     RESET            = 0x60,
+    RESET_ALL        = 0x61,
     BOOTLOAD         = 0x70,
     BOOTLOAD_BY_NAME = 0x71,
 

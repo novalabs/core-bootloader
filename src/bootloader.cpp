@@ -378,6 +378,9 @@ public:
           case MessageType::RESET:
               status = resetMessage(inMessage);
               break;
+          case MessageType::RESET_ALL:
+              status = resetAllMessage(inMessage);
+              break;
           default:
               status = AcknowledgeStatus::NOT_IMPLEMENTED;
         } // switch
@@ -870,6 +873,14 @@ public:
             }
         }
     } // resetMessage
+
+    AcknowledgeStatus
+    resetAllMessage(
+        const Message* message
+    )
+    {
+        return reset();
+    } // resetAllMessage
 
     AcknowledgeStatus
     identify(

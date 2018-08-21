@@ -118,6 +118,7 @@ using IHexData = Message_<LongMessage, MessageType::IHEX_READ, payload::IHex>;
 using IHexRead = Message_<LongMessage, MessageType::IHEX_WRITE, payload::UIDAndAddress>;
 
 using Reset = Message_<LongMessage, MessageType::RESET, payload::UID>;
+using ResetAll = Message_<LongMessage, MessageType::RESET_ALL, payload::EMPTY>;
 
 // using ReadName = Message_<LongMessage, MessageType::READ_MODULE_NAME, payload::UID>;
 using WriteModuleName = Message_<LongMessage, MessageType::WRITE_MODULE_NAME, payload::UIDAndName>;
