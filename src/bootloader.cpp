@@ -1240,7 +1240,7 @@ public:
             rtcan_msg_p->id   = topic << 8 | _canID;
             rtcan_msg_p->size = s;
 
-            rtcanTransmit(&RTCAND1, &_messageTx, MS2ST(100)); // The timeout is random
+            rtcanTransmit(&RTCAND1, &_messageTx, MS2ST(100));
 
             return true;
         } else {
@@ -1577,9 +1577,17 @@ THD_FUNCTION(bootloaderThread, arg) {
 
             hw::Watchdog::reload();
 
+#if 0
+            uint32_t timeout = rng();
+            timeout = timeout & 0x000000FF; // Max is 255
+            timeout >>= 2; // Max is 255/4 = 63
+            timeout += 50; // From 50 ms to 113 ms
+#else
+            const uint32_t timeout = 100;
+#endif
             osalSysLock();
 
-            msg = osalThreadSuspendTimeoutS(&trp, MS2ST(100));
+            msg = osalThreadSuspendTimeoutS(&trp, MS2ST(timeout));
 
             if (msg != RESUME_BOOTLOADER) {
                 if ((cnt & 0x03) == 0x03) {

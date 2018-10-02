@@ -21,7 +21,7 @@ namespace hw {
 constexpr uint8_t*
 CPU_UID()
 {
-    return reinterpret_cast<uint8_t*>(0x1FFFF7AC);
+    return reinterpret_cast<uint8_t*>((intptr_t)0x1FFFF7AC);
 }
 
 //uint8_t UID[12] = {CPU_UID()[0], CPU_UID()[1], CPU_UID()[2], CPU_UID()[3], CPU_UID()[4], CPU_UID()[5], CPU_UID()[6], CPU_UID()[7], CPU_UID()[8], CPU_UID()[9], CPU_UID()[10], CPU_UID()[11] };

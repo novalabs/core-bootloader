@@ -112,9 +112,7 @@ struct Message {
     {
         return this;
     }
-}
-
-CORE_PACKED_ALIGNED;
+};
 
 
 template <std::size_t _MESSAGE_LENGTH>
@@ -156,13 +154,12 @@ struct MessageBase:
             *(t++) = *(f++);
         }
     }
-}
-
-CORE_PACKED_ALIGNED;
+};
 
 template <typename _CONTAINER, MessageType _TYPE, typename _PAYLOAD>
 struct Message_:
     public _CONTAINER {
+	static_assert(sizeof(_CONTAINER) == 2, "sizeof(CONTAINER) != 2");
     //static const std::size_t MESSAGE_LENGTH = _CONTAINER::MESSAGE_LENGTH;
     using ContainerType = _CONTAINER;
     using PayloadType   = _PAYLOAD;
