@@ -1223,6 +1223,16 @@ public:
     )
     {
         if (_state == State::INITIALIZED) {
+            while(_messageTx.status == RTCAN_MSG_BUSY || _messageTx.status == RTCAN_MSG_QUEUED || _messageTx.status == RTCAN_MSG_ONAIR) {
+                if(topic == BOOTLOADER_MASTER_TOPIC_ID) {
+                    // Announce. Do not care if it does not get delievered
+                    return false;
+            } else {
+                    // It is a response. Wait for the previous message to be delievered, until the watchdog resets.
+                    osalThreadSleep(MS2ST(10));
+                }
+            }
+
             memcpy(_bufferTx, m, s);
 
             rtcan_msg_t* rtcan_msg_p;
