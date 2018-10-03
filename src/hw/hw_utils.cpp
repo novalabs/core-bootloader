@@ -14,7 +14,7 @@
 #endif
 
 #if defined(STM32F091xC)
-uint32_t VectorTable[48] __attribute__((section(".vector_table")));
+volatile uint32_t VectorTable[48] __attribute__((section(".vector_table")));
 #endif
 
 namespace hw {
