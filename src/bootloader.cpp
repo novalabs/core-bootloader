@@ -442,10 +442,19 @@ public:
               case MessageType::WRITE_MODULE_NAME:
               case MessageType::WRITE_MODULE_CAN_ID:
               case MessageType::RESET:
+              case MessageType::RESET_ALL:
               default:
               {
                   AcknowledgeUID txMessage = AcknowledgeUID(_sequence, inMessage, status, _moduleUID);
                   _transport.transmit(txMessage.asMessage(), AcknowledgeUID::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
+
+                  if(inMessage->command == MessageType::RESET) {
+                	  while(_transport.isBusy()) {
+                		  osalThreadSleep(MS2ST(10));
+                	  }
+
+                	  hw::reset();
+                  }
               }
             } // switch
         } else if (status == AcknowledgeStatus::DISCARD) {
@@ -882,7 +891,7 @@ public:
         const Message* message
     )
     {
-        return reset();
+    	hw::reset();
     } // resetAllMessage
 
     AcknowledgeStatus
@@ -1118,8 +1127,6 @@ public:
     AcknowledgeStatus
     reset()
     {
-        hw::reset();
-
         return AcknowledgeStatus::OK;
     }
 
