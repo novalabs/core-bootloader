@@ -199,6 +199,9 @@ public:
     isInitialized() = 0;
 
     virtual bool
+	isBusy();
+
+    virtual bool
     transmit(
         const Message* m,
         std::size_t    s,
@@ -1216,6 +1219,12 @@ public:
     } // initializeTransport
 
     bool
+	isBusy()
+    {
+    	return _messageTx.status == RTCAN_MSG_BUSY || _messageTx.status == RTCAN_MSG_QUEUED || _messageTx.status == RTCAN_MSG_ONAIR;
+    }
+
+    bool
     transmit(
         const Message* m,
         std::size_t    s,
@@ -1223,7 +1232,7 @@ public:
     )
     {
         if (_state == State::INITIALIZED) {
-            while(_messageTx.status == RTCAN_MSG_BUSY || _messageTx.status == RTCAN_MSG_QUEUED || _messageTx.status == RTCAN_MSG_ONAIR) {
+            while(isBusy()) {
                 if(topic == BOOTLOADER_MASTER_TOPIC_ID) {
                     // Announce. Do not care if it does not get delievered
                     return false;
