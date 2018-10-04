@@ -388,7 +388,7 @@ public:
               status = resetAllMessage(inMessage);
               break;
           default:
-              status = AcknowledgeStatus::NOT_IMPLEMENTED;
+              status = notImplemented(inMessage);
         } // switch
 
         if ((status != AcknowledgeStatus::DISCARD) && (status != AcknowledgeStatus::DO_NOT_ACK)) {
@@ -929,6 +929,25 @@ public:
     {
     	hw::reset();
     } // resetAllMessage
+
+    AcknowledgeStatus
+    notImplemented(
+        const Message* message
+    )
+    {
+    	const LongMessage* m = reinterpret_cast<const LongMessage*>(message);
+
+		if (_selected) {
+			if (m->sequenceId != (uint8_t)(_sequence + 2)) {
+				return AcknowledgeStatus::WRONG_SEQUENCE;
+			} else {
+				_sequence = m->sequenceId;
+				return AcknowledgeStatus::NOT_IMPLEMENTED;
+			}
+		} else {
+			return AcknowledgeStatus::DISCARD;
+		}
+    }
 
     AcknowledgeStatus
     identify(
