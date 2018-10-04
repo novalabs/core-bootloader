@@ -372,6 +372,9 @@ public:
           case MessageType::DESCRIBE_V3:
               status = describeV3Messaqe(inMessage);
               break;
+          case MessageType::PROTOCOL_VERSION:
+              status = protocolVersion(inMessage);
+              break;
           case MessageType::TAGS_READ:
               status = TagsReadMessage(inMessage);
               break;
@@ -391,6 +394,12 @@ public:
         if ((status != AcknowledgeStatus::DISCARD) && (status != AcknowledgeStatus::DO_NOT_ACK)) {
             switch (inMessage->command) {
               // implemented as a switch to keep it simple...
+              case MessageType::PROTOCOL_VERSION:
+              {
+                  AcknowledgeTags txMessage = AcknowledgeTags(_sequence, inMessage, status, "1.0.0");
+                  _transport.transmit(txMessage.asMessage(), AcknowledgeTags::MESSAGE_LENGTH, BOOTLOADER_TOPIC_ID);
+              }
+              break;
               case MessageType::TAGS_READ:
               {
                   AcknowledgeTags txMessage = AcknowledgeTags(_sequence, inMessage, status, tagsBuffer);
@@ -734,6 +743,33 @@ public:
     )
     {
         const messages::DescribeV3* m = reinterpret_cast<const messages::DescribeV3*>(message);
+
+        if (m->data.uid == _moduleUID) {
+            if (_selected) {
+                if (m->sequenceId != (uint8_t)(_sequence + 2)) {
+                    return AcknowledgeStatus::WRONG_SEQUENCE;
+                } else {
+                    _sequence = m->sequenceId;
+                    return AcknowledgeStatus::OK;
+                }
+            } else {
+                return AcknowledgeStatus::NOT_SELECTED;
+            }
+        } else {
+            if (_selected) {
+                return AcknowledgeStatus::WRONG_UID;
+            } else {
+                return AcknowledgeStatus::DISCARD;
+            }
+        }
+    }
+
+    AcknowledgeStatus
+    protocolVersion(
+        const Message* message
+    )
+    {
+        const messages::ProtocolVersion* m = reinterpret_cast<const messages::ProtocolVersion*>(message);
 
         if (m->data.uid == _moduleUID) {
             if (_selected) {

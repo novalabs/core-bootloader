@@ -111,6 +111,7 @@ using DescribeV1 = Message_<LongMessage, MessageType::DESCRIBE_V1, payload::UID>
 using DescribeV2   = Message_<LongMessage, MessageType::DESCRIBE_V2, payload::UID>;
 using DescribeV3   = Message_<LongMessage, MessageType::DESCRIBE_V3, payload::UID>;
 
+using ProtocolVersion = Message_<LongMessage, MessageType::PROTOCOL_VERSION, payload::UID>;
 using TagsRead = Message_<LongMessage, MessageType::TAGS_READ, payload::UIDAndAddress>;
 
 using IHexData = Message_<LongMessage, MessageType::IHEX_READ, payload::IHex>;

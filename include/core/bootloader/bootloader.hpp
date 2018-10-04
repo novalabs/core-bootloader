@@ -65,6 +65,7 @@ enum class MessageType : uint8_t {
     DESCRIBE_V3         = 0x30,
 
 	TAGS_READ           = 0x40,
+	PROTOCOL_VERSION    = 0x41,
 
     IHEX_WRITE = 0x50,
     IHEX_READ  = 0x51,
